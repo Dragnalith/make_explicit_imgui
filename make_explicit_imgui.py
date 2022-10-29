@@ -4,6 +4,16 @@ from clang.cindex import CursorKind, TypeKind
 import argparse
 import pathlib
 
+WHITELIST = set([
+    'CreateContext',
+    'DestroyContext',
+    'GetCurrentContext',
+    'SetCurrentContext',
+    'AddContextHook',
+    'RemoveContextHook',
+    'CallContextHooks'
+])
+
 class Config:
     def __init__(self, root_folder):
         self.imgui_h = root_folder / 'imgui.h'
@@ -154,12 +164,15 @@ def parse(ctx: ParsingContext, verbose=False) -> list[ApiEntry]:
     
     return apis
 
-def make_signature(params: list[ApiParameter]) -> str:
+def make_signature(params: list[ApiParameter], with_default=True) -> str:
     """
         Given the list of ApiParameter, return a string containing a valid C++ signature
         which can be used in C++ function declaration
     """
-    return ', '.join([str(p) for p in params])
+    if with_default:
+        return ', '.join([str(p) for p in params])
+    else:
+        return ', '.join(['{} {}'.format(p.type, p.name) for p in params])
 
 def make_args(params: list[ApiParameter]) -> str:
     """
@@ -212,7 +225,10 @@ def main():
             file.write('namespace ImGuiEx\n')
             file.write('{\n')
             for api in apis:
-                params = [context_param] + api.params
+                if api.name in WHITELIST:
+                    params = api.params
+                else:
+                    params = [context_param] + api.params
                 file.write('    IMGUI_API {type} {name}({signature});\n'.format(
                     type=api.return_type, 
                     name=api.name, 
@@ -228,8 +244,11 @@ def main():
             file.write('namespace ImGui\n')
             file.write('{\n')
             for api in apis:
-                args = [context_arg] + api.params
-                file.write('    {type} {name}({signature}) {{\n'.format(type=api.return_type, name=api.name, signature=make_signature(api.params)))
+                if api.name in WHITELIST:
+                    args = api.params
+                else:
+                    args = [context_arg] + api.params
+                file.write('    {type} {name}({signature}) {{\n'.format(type=api.return_type, name=api.name, signature=make_signature(api.params, with_default=False)))
                 file.write('        ImGuiEx::{name}({args});\n'.format(name=api.name,args=make_args(args)))
                 file.write('    }\n')
             file.write('}\n')
