@@ -1,9 +1,9 @@
-- [ ] List API
+- [X] List API
   - [X] List name
   - [X] List return type
   - [X] List parameters
   - [X] List default value
-  - [ ] How to deal with variadic parameters?
-- [ ] Whitelist API which does not need `ImGuiContext` to be added
+  - [X] How to deal with variadic parameters?
+- [X] Whitelist API which does not need `ImGuiContext` to be added
 - [ ] Separate imguiex.h from imguiex_internal.h
 - [ ] How to deal with API comment?

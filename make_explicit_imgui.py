@@ -66,6 +66,9 @@ def format_type_name(type_name):
         This function remove space before '*' and '&' as it is the style of ImGui
     """
 
+    if len(type_name) == 0:
+        return type_name
+
     result = ''
     for i in range(len(type_name) - 1):
         if type_name[i] == ' ' and type_name[i+1] in ['*','&']:
@@ -93,11 +96,13 @@ class ApiParameter:
         return self.declaration
 
 class ApiEntry:
-    def __init__(self, name, return_type, params):
+    def __init__(self, name, return_type, params, fmtargs = None, fmtlist = None):
         self.name : str = name
         self.return_type : str = format_type_name(return_type)
         self.params : list[ApiParameter] = params
         self.param_count = len(self.params)
+        self.fmtargs = int(fmtargs[11]) if fmtargs is not None else 0
+        self.fmtlist = int(fmtlist[11]) if fmtlist is not None else 0
 
         assert self.name is not None
         assert self.return_type is not None
@@ -125,25 +130,39 @@ def parse_one_api(ctx: ParsingContext, cursor: clang.cindex.Cursor, verbose=Fals
     if cursor.kind != CursorKind.FUNCTION_DECL:
         return None
 
+    if verbose and cursor.spelling in ['TreeNodeExV']:
+        rprint_cursor(cursor)
+
     child : clang.cindex.Cursor
     is_api = False
     params : list[ApiParameter] = []
+    fmtargs = None
+    fmtlist = None
     for child in cursor.get_children():
-        if child.kind == CursorKind.ANNOTATE_ATTR and child.spelling == 'imgui_api':
-            is_api = True
+        if child.kind == CursorKind.ANNOTATE_ATTR:
+            if child.spelling == 'imgui_api':
+                is_api = True
+            if child.spelling.startswith('IM_FMTARGS'):
+                fmtargs = child.spelling
+            if child.spelling.startswith('IM_FMTLIST'):
+                fmtlib = child.spelling
+
     
     arg : clang.cindex.Cursor
     for arg in cursor.get_arguments():
-        if verbose and cursor.spelling:
-            print(ctx.get_string(arg.extent))
-
         declaration = ctx.get_string(arg.extent)
         assert declaration is not None, "Cannot parse declaration of this arg: {}".format(arg)
         params.append(ApiParameter(arg.spelling, arg.type.spelling, declaration))
 
             
     if is_api:
-        return ApiEntry(name=cursor.spelling, return_type=cursor.type.get_result().spelling, params=params)
+        return ApiEntry(
+            name=cursor.spelling, 
+            return_type=cursor.type.get_result().spelling,
+            params=params,
+            fmtargs=fmtargs,
+            fmtlist=fmtlist
+        )
     else:
         return None
 
@@ -181,6 +200,16 @@ def make_args(params: list[ApiParameter]) -> str:
     """
     return ', '.join([p.name for p in params])
 
+def replace_in_file(path, pairs):
+    with open(path, 'r') as file :
+        filedata = file.read()
+
+    for p in pairs:
+        filedata = filedata.replace(p[0], p[1])
+
+    with open(path, 'w') as file:
+        file.write(filedata)
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('repository_path', action='store', type=str, help="path to the root of dear imgui repository")
@@ -195,16 +224,29 @@ def main():
 
     tmp_content = \
 '''
+#define IM_FMTARGS(x) __attribute__((annotate("IM_FMTARGS(" #x ")")))
+#define IM_FMTLIST(x) __attribute__((annotate("IM_FMTLIST(" #x ")")))
 #define IMGUI_API __attribute__((annotate("imgui_api")))
 #include "imgui.h"\n
 #include "imgui_internal.h"\n
 '''
 
     index = clang.cindex.Index.create()
+
+    replace_in_file(config.imgui_h, [
+        ('#define IM_FMTARGS', '//TMP#define IM_FMTARGS'),
+        ('#define IM_FMTLIST', '//TMP#define IM_FMTLIST'),
+    ])
+
     tu = index.parse(config.tmp, unsaved_files=[(config.tmp, tmp_content)], args=['-std=c++17'])
     ctx = ParsingContext(tu)
     ctx.add_source(config.imgui_h)
     ctx.add_source(config.imgui_internal_h)
+
+    replace_in_file(config.imgui_h, [
+        ('//TMP#define IM_FMTARGS', '#define IM_FMTARGS'),
+        ('//TMP#define IM_FMTLIST', '#define IM_FMTLIST'),
+    ])
 
     if len(tu.diagnostics) > 0:
         for d in tu.diagnostics:
@@ -227,12 +269,21 @@ def main():
             for api in apis:
                 if api.name in WHITELIST:
                     params = api.params
+                    arg_offset = 0
                 else:
                     params = [context_param] + api.params
-                file.write('    IMGUI_API {type} {name}({signature});\n'.format(
+                    arg_offset = 1
+                suffix = ''
+                if api.fmtlist > 0:
+                    suffix = ' IM_FMTLIST({})'.format(api.fmtlist + arg_offset)
+                if api.fmtargs > 0:
+                    suffix = ' IM_FMTARGS({})'.format(api.fmtargs + arg_offset)
+                    params = params + [ApiParameter('...', '', '...')]
+                file.write('    IMGUI_API {type} {name}({signature}){suffix};\n'.format(
                     type=api.return_type, 
                     name=api.name, 
-                    signature=make_signature(params)
+                    signature=make_signature(params),
+                    suffix=suffix
                 ))
             file.write('}\n')
             
@@ -244,12 +295,23 @@ def main():
             file.write('namespace ImGui\n')
             file.write('{\n')
             for api in apis:
+                params = api.params
+                name = api.name
                 if api.name in WHITELIST:
                     args = api.params
                 else:
                     args = [context_arg] + api.params
-                file.write('    {type} {name}({signature}) {{\n'.format(type=api.return_type, name=api.name, signature=make_signature(api.params, with_default=False)))
-                file.write('        ImGuiEx::{name}({args});\n'.format(name=api.name,args=make_args(args)))
+                if api.fmtargs > 0:
+                    params = params + [ApiParameter('...', '', '...')]
+                    args = args + [ApiParameter('args', 'va_list')]
+                    name = name + 'V'
+                file.write('    {type} {name}({signature}) {{\n'.format(type=api.return_type, name=api.name, signature=make_signature(params, with_default=False)))
+                if (api.fmtargs) > 0:
+                    file.write('        va_list args;\n');
+                    file.write('        va_start(args, fmt);\n');
+                file.write('        ImGuiEx::{name}({args});\n'.format(name=name,args=make_args(args)))
+                if (api.fmtargs) > 0:
+                    file.write('        va_end(args);\n');
                 file.write('    }\n')
             file.write('}\n')
 
