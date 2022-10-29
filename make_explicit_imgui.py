@@ -3,6 +3,7 @@ import clang.cindex
 from clang.cindex import CursorKind, TypeKind
 import argparse
 import pathlib
+from typing import Iterable
 
 WHITELIST = set([
     'CreateContext',
@@ -117,7 +118,7 @@ def rprint_cursor(cursor: clang.cindex.Cursor, indent=''):
 
 def print_cursor(cursor: clang.cindex.Cursor, indent=''):
     print('{indent}{kind}: spelling: {spelling}, location: {location}'.format(indent=indent, kind=cursor.kind, spelling=cursor.spelling, location=cursor.location))
-    #print_type(cursor.type, indent=indent)
+    print_type(cursor.type, indent=indent)
 
 def print_type(type: clang.cindex.Type, indent=''):
     print('{indent}TYPE - {kind}: spelling: {spelling}'.format(indent=indent, kind=type.kind, spelling=type.spelling))
@@ -183,6 +184,102 @@ def parse(ctx: ParsingContext, verbose=False) -> list[ApiEntry]:
     
     return apis
 
+def iterate_namespace(cursor: clang.cindex.Cursor) -> Iterable[clang.cindex.Cursor]:
+    child : clang.cindex.Cursor
+    for child in cursor.get_children():
+        if (child.kind == clang.cindex.CursorKind.NAMESPACE):
+            for subchild in iterate_namespace(child):
+                yield subchild
+        else:
+            yield child
+
+def iterate_recursive(cursor: clang.cindex.Cursor) -> Iterable[clang.cindex.Cursor]:
+    child : clang.cindex.Cursor
+    for child in cursor.get_children():
+        yield child
+        for subchild in iterate_recursive(child):
+            yield subchild
+
+def find_function_cursor(cursor: clang.cindex.Cursor) -> clang.cindex.Cursor:
+    deff = cursor.get_definition()
+
+    return deff
+
+def find_function_cursor2(cursor: clang.cindex.Cursor, kind: CursorKind) -> clang.cindex.Cursor:
+    spelling_candidate = [
+        cursor.spelling,
+        'class ' + cursor.spelling,
+        'struct ' + cursor.spelling
+    ]
+    kind_candidate = [
+        CursorKind.TYPE_REF,
+        CursorKind.DECL_REF_EXPR
+    ]
+    candidate = None
+    for child in iterate_recursive(cursor):
+        if child.kind in kind_candidate and child.spelling in spelling_candidate:
+            candidate = child
+
+    if candidate.kind == CursorKind.DECL_REF_EXPR:
+        cursor_def = candidate.get_definition()
+        cursor_decl = candidate.type.get_declaration()
+        def_parent = cursor_def.semantic_parent
+
+        assert def_parent is not None
+
+        return cursor_def
+    if candidate.kind == CursorKind.TYPE_REF:
+        cursor = candidate.type.get_declaration()
+        assert cursor.kind != CursorKind.NO_DECL_FOUND
+        return cursor
+
+    return None
+
+        
+def get_fully_qualified_name2(cursor: clang.cindex.Cursor):
+    type = cursor.type
+    semantic_parent : clang.cindex.Cursor =  cursor.semantic_parent
+    if semantic_parent.kind == CursorKind.TRANSLATION_UNIT:
+        return type.spelling
+    else:
+        return get_fully_qualified_name(semantic_parent) + '::' + type.spelling
+
+def get_fully_qualified_name(cursor: clang.cindex.Cursor):
+    res = cursor.spelling
+    cursor = cursor.semantic_parent
+    while cursor.kind != CursorKind.TRANSLATION_UNIT:
+        res = cursor.spelling + '::' + res
+        cursor = cursor.semantic_parent
+    return res
+
+def parse_function_call(ctx: ParsingContext, verbose=False):
+    """
+        Build Call Graph to find which function depend on
+        an implict ImGuiContent.
+    """
+
+    cursor : clang.cindex.Cursor
+    for cursor in iterate_namespace(ctx.tu.cursor):
+        if (cursor.kind == CursorKind.FUNCTION_DECL or cursor.kind == CursorKind.CXX_METHOD):
+            use_implicit_context = False
+            call_list = []
+            for child in iterate_recursive(cursor):
+                if child.spelling == 'GImGui':
+                    use_implicit_context = True
+                if child.kind == CursorKind.CALL_EXPR:
+                    function_def = find_function_cursor(child)
+                    if function_def is not None:
+                        call_list.append(get_fully_qualified_name(function_def))
+                    else:
+                        print('error: {} ({})'.format(child.spelling, child.location))
+
+            # if use_implicit_context:
+            #     print('--start--')
+            #     print(get_fully_qualified_name(cursor))
+            #     for c in call_list:
+            #         print('   ' + c)
+            #     print('--end--')
+
 def make_signature(params: list[ApiParameter], with_default=True) -> str:
     """
         Given the list of ApiParameter, return a string containing a valid C++ signature
@@ -222,6 +319,13 @@ def main():
 
     config = Config(root_folder)
 
+    tmp_content2 = \
+'''
+#include "imgui.cpp"\n
+#include "imgui_draw.cpp"\n
+#include "imgui_tables.cpp"\n
+#include "imgui_widgets.cpp"\n
+'''
     tmp_content = \
 '''
 #define IM_FMTARGS(x) __attribute__((annotate("IM_FMTARGS(" #x ")")))
@@ -233,26 +337,30 @@ def main():
 
     index = clang.cindex.Index.create()
 
-    replace_in_file(config.imgui_h, [
-        ('#define IM_FMTARGS', '//TMP#define IM_FMTARGS'),
-        ('#define IM_FMTLIST', '//TMP#define IM_FMTLIST'),
-    ])
+    # replace_in_file(config.imgui_h, [
+    #     ('#define IM_FMTARGS', '//TMP#define IM_FMTARGS'),
+    #     ('#define IM_FMTLIST', '//TMP#define IM_FMTLIST'),
+    # ])
 
-    tu = index.parse(config.tmp, unsaved_files=[(config.tmp, tmp_content)], args=['-std=c++17'])
+    tu = index.parse(config.tmp, unsaved_files=[(config.tmp, tmp_content2)], args=['-std=c++17', '-I{}'.format(root_folder)])
     ctx = ParsingContext(tu)
     ctx.add_source(config.imgui_h)
     ctx.add_source(config.imgui_internal_h)
 
-    replace_in_file(config.imgui_h, [
-        ('//TMP#define IM_FMTARGS', '#define IM_FMTARGS'),
-        ('//TMP#define IM_FMTLIST', '#define IM_FMTLIST'),
-    ])
+    # replace_in_file(config.imgui_h, [
+    #     ('//TMP#define IM_FMTARGS', '#define IM_FMTARGS'),
+    #     ('//TMP#define IM_FMTLIST', '#define IM_FMTLIST'),
+    # ])
 
     if len(tu.diagnostics) > 0:
         for d in tu.diagnostics:
             print(d)
         print('Clang parsing encounter some issues... abort...')
-        return
+        #return
+
+    parse_function_call(ctx, verbose=args.verbose)
+
+    return
 
     apis = parse(ctx, verbose=args.verbose)
     if args.print:

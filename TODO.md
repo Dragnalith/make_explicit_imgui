@@ -7,3 +7,4 @@
 - [X] Whitelist API which does not need `ImGuiContext` to be added
 - [ ] Separate imguiex.h from imguiex_internal.h
 - [ ] How to deal with API comment?
+- [ ] Find all function call in function defined in imgui .cpp
