@@ -18,7 +18,7 @@ class Config:
 class ApiParameter:
     def __init__(self, name : str, type : str, default_value : str =None):
         self.name : str = name
-        self.type : str = type
+        self.type : str = type.replace(' ', '')
         self.default_value : str = default_value
 
     def __str__(self):
@@ -28,12 +28,12 @@ class ApiParameter:
             return '{} {} = {}'.format(self.type, self.name, self.default_value)
 
 class ApiEntry:
-    def __init__(self, name):
+    def __init__(self, name, return_type, params, comment = ''):
         self.name : str = name
-        self.return_type : str = 'void'
-        self.params : list[ApiParameter] = []
+        self.return_type : str = return_type.replace(' ', '')
+        self.params : list[ApiParameter] = params
         self.param_count = len(self.params)
-        self.comment : str = ''
+        self.comment : str = comment
         self.has_comment : bool = self.comment == ''
 
     def __str__(self):
@@ -46,6 +46,10 @@ def rprint_cursor(cursor: clang.cindex.Cursor, indent=''):
 
 def print_cursor(cursor: clang.cindex.Cursor, indent=''):
     print('{indent}{kind}: spelling: {spelling}, location: {location}'.format(indent=indent, kind=cursor.kind, spelling=cursor.spelling, location=cursor.location))
+    print_type(cursor.type, indent=indent)
+
+def print_type(type: clang.cindex.Type, indent=''):
+    print('{indent}TYPE - {kind}: spelling: {spelling}'.format(indent=indent, kind=type.kind, spelling=type.spelling))
 
 def parse_one_api(cursor: clang.cindex.Cursor, verbose=False) -> ApiEntry:
     """
@@ -56,13 +60,21 @@ def parse_one_api(cursor: clang.cindex.Cursor, verbose=False) -> ApiEntry:
         return None
 
     child : clang.cindex.Cursor
+    is_api = False
+    params : list[ApiParameter] = []
     for child in cursor.get_children():
         if child.kind == CursorKind.ANNOTATE_ATTR and child.spelling == 'imgui_api':
-            if verbose:
-                rprint_cursor(cursor)
-            return ApiEntry(cursor.spelling)
-    
-    return None
+            is_api = True
+        if child.kind == CursorKind.PARM_DECL:
+            params.append(ApiParameter(child.spelling, child.type.spelling))
+
+            
+    if is_api:
+        if verbose:
+            rprint_cursor(cursor)
+        return ApiEntry(name=cursor.spelling, return_type=cursor.type.get_result().spelling, params=params)
+    else:
+        return None
 
 def parse(tu: clang.cindex.TranslationUnit, verbose=False) -> list[ApiEntry]:
     """
@@ -147,7 +159,6 @@ def main():
             context_arg : ApiParameter = ApiParameter('GImGui', 'ImGuiContext*', None)
             file.write('#include "imgui.h"\n')
             file.write('#include "imguiex.h"\n\n')
-            file.write('#include "imgui.h"\n\n')
             file.write('ImGuiContext*   GImGui = NULL;\n\n')
             file.write('namespace ImGui\n')
             file.write('{\n')
