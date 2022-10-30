@@ -18,21 +18,33 @@ WHITELIST = set([
 class Config:
     def __init__(self, root_folder):
         self.imgui_h = root_folder / 'imgui.h'
-        self.imguiex_h = root_folder / 'imguiex.h'
-        self.imguiex_cpp = root_folder / 'imguiex.cpp'
         self.imgui_internal_h = root_folder / 'imgui_internal.h'
         self.imgui_cpp = root_folder / 'imgui.cpp'
         self.imgui_tables = root_folder / 'imgui_tables.cpp'
         self.imgui_widgets = root_folder / 'imgui_widgets.cpp'
         self.imgui_draw = root_folder / 'imgui_draw.cpp'
+        self.imguiex_h = root_folder / 'imguiex.h'
+        self.imguiex_cpp = root_folder / 'imguiex.cpp'
         self.tmp = root_folder / 'tmp.cpp'
+        self.test_cpp = pathlib.Path(__file__).parent / 'test/test.cpp'
+        self.imgui_sources = set([
+            self.imgui_h,
+            self.imgui_internal_h,
+            self.imgui_cpp,
+            self.imgui_tables,
+            self.imgui_widgets,
+            self.imgui_draw
+        ])
 
 class ParsingContext:
-    def __init__(self, tu: clang.cindex.TranslationUnit):
+    def __init__(self, tu: clang.cindex.TranslationUnit, config: Config):
         self.tu = tu
         self._sources = dict()
+        self.config = config
+        for source in config.imgui_sources:
+            self._add_source(source)
 
-    def add_source(self, path):
+    def _add_source(self, path):
         if not isinstance(path, pathlib.Path):
             path = pathlib.Path(path)
 
@@ -81,7 +93,7 @@ def format_type_name(type_name):
 
     return result
 
-class ApiParameter:
+class FunctionParameter:
     def __init__(self, name : str, type : str, declaration : str = None):
         self.name : str = name
         self.type : str = format_type_name(type)
@@ -97,14 +109,43 @@ class ApiParameter:
     def __str__(self):
         return self.declaration
 
-class ApiEntry:
-    def __init__(self, name, return_type, params, fmtargs = None, fmtlist = None):
-        self.name : str = name
-        self.return_type : str = format_type_name(return_type)
-        self.params : list[ApiParameter] = params
+class FunctionEntry:
+    def __init__(self, ctx: ParsingContext, cursor: clang.cindex.Cursor):
+        assert cursor.kind in [CursorKind.FUNCTION_DECL, CursorKind.CXX_METHOD]
+
+        params : list[FunctionParameter] = []
+        is_api = False
+        fmtargs = None
+        fmtlist = None
+        child : clang.cindex.Cursor
+        for child in cursor.get_children():
+            if child.kind == CursorKind.ANNOTATE_ATTR:
+                if child.spelling == 'imgui_api':
+                    is_api = True
+                if child.spelling.startswith('IM_FMTARGS'):
+                    fmtargs = child.spelling
+                if child.spelling.startswith('IM_FMTLIST'):
+                    fmtlib = child.spelling
+
+        arg : clang.cindex.Cursor
+        for arg in cursor.get_arguments():
+            declaration = ctx.get_string(arg.extent)
+            assert declaration is not None, "Cannot parse declaration of this arg: {} '{}'".format(arg.kind, arg.spelling)
+            params.append(FunctionParameter(arg.spelling, arg.type.spelling, declaration))
+
+        self.name : str = cursor.spelling
+        self.fq_name : str = get_fully_qualified_name(cursor)
+        self.return_type : str = format_type_name(cursor.type.get_result().spelling)
+        self.params : list[FunctionParameter] = params
         self.param_count = len(self.params)
         self.fmtargs = int(fmtargs[11]) if fmtargs is not None else 0
         self.fmtlist = int(fmtlist[11]) if fmtlist is not None else 0
+        self.is_api=is_api
+        self.location=cursor.location
+        self.is_method=cursor.kind == CursorKind.CXX_METHOD
+        self.is_definition=cursor.is_definition()
+        if self.is_method:
+            self.class_type = get_fully_qualified_name(cursor.semantic_parent)
 
         assert self.name is not None
         assert self.return_type is not None
@@ -118,7 +159,7 @@ class ApiEntry:
             suffix = ' IM_FMTLIST({})'.format(self.fmtlist + arg_offset)
         if self.fmtargs > 0:
             suffix = ' IM_FMTARGS({})'.format(self.fmtargs + arg_offset)
-            params = params + [ApiParameter('...', '', '...')]
+            params = params + [FunctionParameter('...', '', '...')]
         return 'IMGUI_API {type} {name}({signature}){suffix};'.format(
             type=self.return_type, 
             name=self.name, 
@@ -126,76 +167,36 @@ class ApiEntry:
             suffix=suffix
         )
 
-def rprint_cursor(cursor: clang.cindex.Cursor, indent=''):
-    print_cursor(cursor, indent)
+def default_write_func(x):
+    print(x)
+
+def rprint_cursor(cursor: clang.cindex.Cursor, indent='', write_func=default_write_func):
+    print_cursor(cursor, indent, write_func=write_func)
     for c in cursor.get_children():
-        rprint_cursor(c,indent=indent+'  ')
+        rprint_cursor(c,indent=indent+'  ', write_func=write_func)
 
-def print_cursor(cursor: clang.cindex.Cursor, indent=''):
-    print('{indent}{kind}: spelling: {spelling}, location: {location}'.format(indent=indent, kind=cursor.kind, spelling=cursor.spelling, location=cursor.location))
-    print_type(cursor.type, indent=indent)
+def print_cursor(cursor: clang.cindex.Cursor, indent='', write_func=default_write_func):
+    write_func('{indent}{kind}: spelling: {spelling}, location: {location}'.format(indent=indent, kind=cursor.kind, spelling=cursor.spelling, location=cursor.location))
+    print_type(cursor.type, indent=indent, write_func=write_func)
 
-def print_type(type: clang.cindex.Type, indent=''):
-    print('{indent}TYPE - {kind}: spelling: {spelling}'.format(indent=indent, kind=type.kind, spelling=type.spelling))
+def print_type(type: clang.cindex.Type, indent='', write_func=default_write_func):
+    write_func('{indent}TYPE - {kind}: spelling: {spelling}'.format(indent=indent, kind=type.kind, spelling=type.spelling))
 
-def parse_one_api(ctx: ParsingContext, cursor: clang.cindex.Cursor, verbose=False) -> ApiEntry:
-    """
-        Parse a clang.cindex.Cursor, determine it is a ImGui api.
-        If it is return an ApiEntry, otherwise return None
-    """
-    if cursor.kind != CursorKind.FUNCTION_DECL:
-        return None
-
-    if verbose and cursor.spelling in ['TreeNodeExV']:
-        rprint_cursor(cursor)
-
-    child : clang.cindex.Cursor
-    is_api = False
-    params : list[ApiParameter] = []
-    fmtargs = None
-    fmtlist = None
-    for child in cursor.get_children():
-        if child.kind == CursorKind.ANNOTATE_ATTR:
-            if child.spelling == 'imgui_api':
-                is_api = True
-            if child.spelling.startswith('IM_FMTARGS'):
-                fmtargs = child.spelling
-            if child.spelling.startswith('IM_FMTLIST'):
-                fmtlib = child.spelling
-
-    
-    arg : clang.cindex.Cursor
-    for arg in cursor.get_arguments():
-        declaration = ctx.get_string(arg.extent)
-        assert declaration is not None, "Cannot parse declaration of this arg: {}".format(arg)
-        params.append(ApiParameter(arg.spelling, arg.type.spelling, declaration))
-
-            
-    if is_api:
-        return ApiEntry(
-            name=cursor.spelling, 
-            return_type=cursor.type.get_result().spelling,
-            params=params,
-            fmtargs=fmtargs,
-            fmtlist=fmtlist
-        )
-    else:
-        return None
-
-def parse(ctx: ParsingContext, verbose=False) -> list[ApiEntry]:
+def parse(ctx: ParsingContext, verbose=False) -> list[FunctionEntry]:
     """
         Parse a translation unit, find all ImGui api.
-        Return a list of ApiEntry contains all api found
+        Return a list of FunctionEntry contains all api found
     """
-    apis : list[ApiEntry] = []
+    apis : list[FunctionEntry] = []
 
     child : clang.cindex.Cursor
     for child in ctx.tu.cursor.get_children():
         if (child.kind == clang.cindex.CursorKind.NAMESPACE):
             for c in child.get_children():
-                api = parse_one_api(ctx, c, verbose=verbose)
-                if api is not None:
-                    apis.append(api)
+                if c.kind in [CursorKind.FUNCTION_DECL]:
+                    func = FunctionEntry(ctx, c)
+                    if func.is_api:
+                        apis.append(func)
     
     return apis
 
@@ -208,57 +209,6 @@ def iterate_namespace(cursor: clang.cindex.Cursor) -> Iterable[clang.cindex.Curs
         else:
             yield child
 
-def iterate_recursive(cursor: clang.cindex.Cursor) -> Iterable[clang.cindex.Cursor]:
-    child : clang.cindex.Cursor
-    for child in cursor.get_children():
-        yield child
-        for subchild in iterate_recursive(child):
-            yield subchild
-
-def find_function_cursor(cursor: clang.cindex.Cursor) -> clang.cindex.Cursor:
-    deff = cursor.get_definition()
-
-    return deff
-
-def find_function_cursor2(cursor: clang.cindex.Cursor, kind: CursorKind) -> clang.cindex.Cursor:
-    spelling_candidate = [
-        cursor.spelling,
-        'class ' + cursor.spelling,
-        'struct ' + cursor.spelling
-    ]
-    kind_candidate = [
-        CursorKind.TYPE_REF,
-        CursorKind.DECL_REF_EXPR
-    ]
-    candidate = None
-    for child in iterate_recursive(cursor):
-        if child.kind in kind_candidate and child.spelling in spelling_candidate:
-            candidate = child
-
-    if candidate.kind == CursorKind.DECL_REF_EXPR:
-        cursor_def = candidate.get_definition()
-        cursor_decl = candidate.type.get_declaration()
-        def_parent = cursor_def.semantic_parent
-
-        assert def_parent is not None
-
-        return cursor_def
-    if candidate.kind == CursorKind.TYPE_REF:
-        cursor = candidate.type.get_declaration()
-        assert cursor.kind != CursorKind.NO_DECL_FOUND
-        return cursor
-
-    return None
-
-        
-def get_fully_qualified_name2(cursor: clang.cindex.Cursor):
-    type = cursor.type
-    semantic_parent : clang.cindex.Cursor =  cursor.semantic_parent
-    if semantic_parent.kind == CursorKind.TRANSLATION_UNIT:
-        return type.spelling
-    else:
-        return get_fully_qualified_name(semantic_parent) + '::' + type.spelling
-
 def get_fully_qualified_name(cursor: clang.cindex.Cursor):
     res = cursor.spelling
     cursor = cursor.semantic_parent
@@ -267,37 +217,48 @@ def get_fully_qualified_name(cursor: clang.cindex.Cursor):
         cursor = cursor.semantic_parent
     return res
 
-def parse_function_call(ctx: ParsingContext, verbose=False):
+def visit_cursor(parent: clang.cindex.Cursor, requested_kinds: CursorKind , callback):
+    cursor : clang.cindex.Cursor
+    for cursor in parent.get_children():
+        visit_child = True
+        if cursor.kind in requested_kinds:
+            visit_child = callback(cursor)
+        if visit_child:
+            visit_cursor(cursor, requested_kinds, callback)
+    return
+
+def find_function(ctx: ParsingContext, verbose=False):
     """
         Build Call Graph to find which function depend on
         an implict ImGuiContent.
     """
 
-    cursor : clang.cindex.Cursor
-    for cursor in iterate_namespace(ctx.tu.cursor):
-        if (cursor.kind == CursorKind.FUNCTION_DECL or cursor.kind == CursorKind.CXX_METHOD):
-            use_implicit_context = False
-            call_list = []
-            for child in iterate_recursive(cursor):
-                if child.spelling == 'GImGui':
-                    use_implicit_context = True
-                if child.kind == CursorKind.CALL_EXPR:
-                    function_def = find_function_cursor(child)
-                    if function_def is not None:
-                        call_list.append(get_fully_qualified_name(function_def))
-                    else:
-                        print('error: {} ({})'.format(child.spelling, child.location))
+    if False:
+        with open('dump.txt', 'w') as file:
+            def write_func(x):
+                file.write(x + '\n')
+            rprint_cursor(ctx.tu.cursor, write_func=write_func)
+        return
 
-            # if use_implicit_context:
-            #     print('--start--')
-            #     print(get_fully_qualified_name(cursor))
-            #     for c in call_list:
-            #         print('   ' + c)
-            #     print('--end--')
+    funcs : list[FunctionEntry] = []
+    def add_function_visitor(cursor: clang.cindex.Cursor):
+        if pathlib.Path(str(cursor.location.file)) in ctx.config.imgui_sources:
+            func = FunctionEntry(ctx, cursor)
+            funcs.append(func)
 
-def make_signature(params: list[ApiParameter], with_default=True) -> str:
+        return False
+
+    visit_cursor(ctx.tu.cursor, [CursorKind.FUNCTION_DECL, CursorKind.CXX_METHOD], add_function_visitor)
+
+    for f in funcs:
+        if f.is_method:
+            print('[{}] is_def: {}, method_of: {}, loc: {}'.format(f.fq_name, f.is_definition, f.class_type, f.location))
+        else:
+            print('[{}] is_def: {}, method_of: None, loc: {}'.format(f.fq_name, f.is_definition, f.location))
+
+def make_signature(params: list[FunctionParameter], with_default=True) -> str:
     """
-        Given the list of ApiParameter, return a string containing a valid C++ signature
+        Given the list of FunctionParameter, return a string containing a valid C++ signature
         which can be used in C++ function declaration
     """
     if with_default:
@@ -305,9 +266,9 @@ def make_signature(params: list[ApiParameter], with_default=True) -> str:
     else:
         return ', '.join(['{} {}'.format(p.type, p.name) for p in params])
 
-def make_args(params: list[ApiParameter]) -> str:
+def make_args(params: list[FunctionParameter]) -> str:
     """
-        Given the list of ApiParameter, return a string containing a valid C++ list of argument
+        Given the list of FunctionParameter, return a string containing a valid C++ list of argument
         which can be used in C++ function call
     """
     return ', '.join([p.name for p in params])
@@ -325,25 +286,36 @@ def replace_in_file(path, pairs):
 def run_research(args, config):
     tmp_content = \
 '''
-//#include "imgui.cpp"\n
+#include "imgui.cpp"\n
 #include "imgui_draw.cpp"\n
-//#include "imgui_tables.cpp"\n
-//#include "imgui_widgets.cpp"\n
+#include "imgui_tables.cpp"\n
+#include "imgui_widgets.cpp"\n
 '''
 
     index = clang.cindex.Index.create()
 
-
     tu = index.parse(config.tmp, unsaved_files=[(config.tmp, tmp_content)], args=['-std=c++17'])
-    ctx = ParsingContext(tu)
-    ctx.add_source(config.imgui_h)
-    ctx.add_source(config.imgui_internal_h)
+    ctx = ParsingContext(tu, config)
 
     if len(tu.diagnostics) > 0:
         for d in tu.diagnostics:
             print(d)
 
-    parse_function_call(ctx, verbose=args.verbose)
+    find_function(ctx, verbose=args.verbose)
+
+def dump_test_ast(args, config):
+    index = clang.cindex.Index.create()
+
+    tu = index.parse(str(config.test_cpp), args=['-std=c++17'])
+
+    if len(tu.diagnostics) > 0:
+        for d in tu.diagnostics:
+            print(d)
+
+    with open('test_ast_dump.txt', 'w') as file:
+        def write_func(x):
+            file.write(x + '\n')
+        rprint_cursor(tu.cursor, write_func=write_func)
 
 def generate(args, config):
     tmp_content = \
@@ -363,9 +335,7 @@ def generate(args, config):
     ])
 
     tu = index.parse(config.tmp, unsaved_files=[(config.tmp, tmp_content)], args=['-std=c++17'])
-    ctx = ParsingContext(tu)
-    ctx.add_source(config.imgui_h)
-    ctx.add_source(config.imgui_internal_h)
+    ctx = ParsingContext(tu, config)
 
     replace_in_file(config.imgui_h, [
         ('//TMP#define IM_FMTARGS', '#define IM_FMTARGS'),
@@ -383,7 +353,7 @@ def generate(args, config):
 
     if args.execute:
         with open(config.imguiex_h, 'w', encoding='utf-8') as file:
-            context_param : ApiParameter = ApiParameter('context', 'ImGuiContext*')
+            context_param : FunctionParameter = FunctionParameter('context', 'ImGuiContext*')
             file.write('#include "imgui.h"\n')
             file.write('#include "imgui_internal.h"\n\n')
             file.write('namespace ImGuiEx\n')
@@ -400,7 +370,7 @@ def generate(args, config):
                     suffix = ' IM_FMTLIST({})'.format(api.fmtlist + arg_offset)
                 if api.fmtargs > 0:
                     suffix = ' IM_FMTARGS({})'.format(api.fmtargs + arg_offset)
-                    params = params + [ApiParameter('...', '', '...')]
+                    params = params + [FunctionParameter('...', '', '...')]
                 file.write('    IMGUI_API {type} {name}({signature}){suffix};\n'.format(
                     type=api.return_type, 
                     name=api.name, 
@@ -410,7 +380,7 @@ def generate(args, config):
             file.write('}\n')
             
         with open(config.imguiex_cpp, 'w', encoding='utf-8') as file:
-            context_arg : ApiParameter = ApiParameter('GImGui', 'ImGuiContext*')
+            context_arg : FunctionParameter = FunctionParameter('GImGui', 'ImGuiContext*')
             file.write('#include "imgui.h"\n')
             file.write('#include "imguiex.h"\n\n')
             file.write('ImGuiContext*   GImGui = NULL;\n\n')
@@ -424,8 +394,8 @@ def generate(args, config):
                 else:
                     args = [context_arg] + api.params
                 if api.fmtargs > 0:
-                    params = params + [ApiParameter('...', '', '...')]
-                    args = args + [ApiParameter('args', 'va_list')]
+                    params = params + [FunctionParameter('...', '', '...')]
+                    args = args + [FunctionParameter('args', 'va_list')]
                     name = name + 'V'
                 file.write('    {type} {name}({signature}) {{\n'.format(type=api.return_type, name=api.name, signature=make_signature(params, with_default=False)))
                 if (api.fmtargs) > 0:
@@ -444,6 +414,7 @@ def main():
     parser.add_argument('-p', '--print', action='store_true', default=False)
     parser.add_argument('-x', '--execute', action='store_true', default=False, help="Actually do the imgui repository conversion")
     parser.add_argument('-r', '--research', action='store_true', default=False, help="Run research code made to explore how to parse imgui with libclang")
+    parser.add_argument('-d', '--dump-test-ast', action='store_true', default=False, help="Dump AST of manually written code for experimentation purpose")
     args = parser.parse_args()
 
     root_folder = pathlib.Path(args.repository_path)
@@ -452,6 +423,8 @@ def main():
 
     if args.research:
         run_research(args, config)
+    elif args.dump_test_ast:
+        dump_test_ast(args, config)
     else:
         generate(args, config)
 
