@@ -13,14 +13,14 @@
   - [X] How to deal with variadic parameters?
 - [X] Whitelist API which does not need `ImGuiContext` to be added
 - [X] Separate code path to find API from code path finding all function definition and call expression
-- [ ] Find all function definition
+- [X] Find all function definition
   - [X] Discriminate if function or method, if method find the type
   - [X] Discriminate if use implicit context or not
   - [X] Find Text location
   - [X] Replace the old api parsing with this new code
-- [ ] Build call graph and find which function depends on the implicit context
-- [ ] Find all call expression
-  - [ ] With source location
+- [X] Fix function database: Need better identification for function than just name
+- [X] Build call graph and find which function depends on the implicit context
+- [ ] Find all call location
 - [ ] Keep only call expression defined in imgui code
 - [ ] Separate imguiex.h from imguiex_internal.h
 - [ ] How to deal with API comment?

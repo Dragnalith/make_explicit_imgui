@@ -48,6 +48,7 @@ class Config:
         self.imgui_tables = root_folder / 'imgui_tables.cpp'
         self.imgui_widgets = root_folder / 'imgui_widgets.cpp'
         self.imgui_draw = root_folder / 'imgui_draw.cpp'
+        self.imgui_demo = root_folder / 'imgui_demo.cpp'
         self.imguiex_h = root_folder / 'imguiex.h'
         self.imguiex_cpp = root_folder / 'imguiex.cpp'
         self.tmp = root_folder / 'tmp.cpp'
@@ -58,7 +59,8 @@ class Config:
             self.imgui_cpp,
             self.imgui_tables,
             self.imgui_widgets,
-            self.imgui_draw
+            self.imgui_draw,
+            self.imgui_demo
         ])
 
 class ParsingContext:
@@ -149,6 +151,8 @@ class FunctionEntry:
             params.append(FunctionParameter(arg.spelling, arg.type.spelling, declaration))
 
         self.name : str = cursor.spelling
+        self.id : str = cursor.mangled_name
+        assert self.id is not None and self.id != ''
         self.code_range : CodeRange = CodeRange.from_source_location(cursor.location, len(cursor.spelling))
         self.fq_name : str = get_fully_qualified_name(cursor)
         self.return_type : str = format_type_name(cursor.type.get_result().spelling)
@@ -163,6 +167,8 @@ class FunctionEntry:
         if self.is_method:
             self.class_type = get_fully_qualified_name(cursor.semantic_parent)
 
+        self.visited = False
+        self.need_context_param = False
         self.implicit_context = None
         for child in iterate_recursive(cursor):
             if child.spelling == 'GImGui':
@@ -171,6 +177,17 @@ class FunctionEntry:
 
         assert self.name is not None
         assert self.return_type is not None
+
+    def __key(self):
+        return self.id
+
+    def __hash__(self):
+        return hash(self.__key())
+
+    def __eq__(self, other):
+        if isinstance(other, FunctionEntry):
+            return self.__key() == other.__key()
+        return NotImplemented
 
     def __str__(self):
         params = self.params
@@ -188,6 +205,74 @@ class FunctionEntry:
             signature=make_signature(params),
             suffix=suffix
         )
+
+class FunctionDatabase:
+    """
+        Assumption all entry always at least a definition, and sometimes a declaration too.
+    """
+    def __init__(self, ctx: ParsingContext, funcs : list[FunctionEntry]):
+        self._ctx = ctx
+        self._declarations : dict[FunctionEntry] = dict()
+        self._definitions : dict[FunctionEntry] = dict()
+        self._func_to_call : dict[FunctionEntry, set(FunctionEntry)] = dict()
+        self._call_to_func : dict[FunctionEntry, set(FunctionEntry)] = dict()
+        for f in funcs:
+            if f.is_definition:
+                assert f.id not in self._definitions
+                self._definitions[f.id] = f
+            else:
+                if f.id in self._declarations:
+                    print('WARNING: {} is declared in {} and in {}'.format(f.fq_name, f.location, self._declarations[f.id].location))
+                    if pathlib.Path(str(f.location.file)) != ctx.config.imgui_demo:
+                        self._declarations[f.id] = f
+                else:
+                    self._declarations[f.id] = f
+
+        for f in funcs:
+            assert f.id in self._definitions
+
+        for f in self._definitions.values():
+            self._func_to_call[f] = set()
+            self._call_to_func[f] = set()
+            if f.id not in self._declarations:
+                self._declarations[f.id] = f
+
+    def iter_declarations(self) -> Iterable[FunctionEntry]:
+        for decl in self._declarations.values():
+            yield decl
+
+    def add_call(self, func_id: str, call_id: str):
+        func = self._definitions.get(func_id)
+        call = self._definitions.get(call_id)
+        if func is not None and call is not None:
+            self._call_to_func[call].add(func)
+            self._func_to_call[func].add(call)
+
+    def dump_func_to_call(self):
+        for func, callees in self._func_to_call.items():
+            print(func.fq_name + ':')
+            for call in callees:
+                print('    * ' + call.fq_name)
+
+    def compute_context_need(self):
+        for call, funcs in self._call_to_func.items():
+            if call.implicit_context is not None:
+                self._set_need_context_recursive(call)
+
+    def _set_need_context_recursive(self, call):
+        decl_entry = self._declarations[call.id]
+        def_entry = self._definitions[call.id]
+        if def_entry.visited:
+            assert decl_entry.visited
+            return
+        
+        decl_entry.need_context_param = True
+        def_entry .need_context_param = True
+        def_entry.visited = True
+        decl_entry.visited = True
+
+        for func in self._call_to_func[call]:
+            self._set_need_context_recursive(func)
 
 def default_write_func(x):
     print(x)
@@ -248,18 +333,15 @@ def find_function(ctx: ParsingContext, config: Config, verbose=False):
         an implict ImGuiContent.
     """
 
-    if False:
-        with open('dump.txt', 'w') as file:
-            def write_func(x):
-                file.write(x + '\n')
-            rprint_cursor(ctx.tu.cursor, write_func=write_func)
-        return
-
     funcs : list[FunctionEntry] = []
     def add_function_visitor(cursor: clang.cindex.Cursor):
         if pathlib.Path(str(cursor.location.file)) in ctx.config.imgui_sources:
-            func = FunctionEntry(ctx, cursor)
-            funcs.append(func)
+            if cursor.mangled_name == '':
+                if verbose:
+                    print('mangle error in {} ({})'.format(cursor.spelling, cursor.location))
+            else:
+                func = FunctionEntry(ctx, cursor)
+                funcs.append(func)
 
         return False
 
@@ -274,6 +356,27 @@ def find_function(ctx: ParsingContext, config: Config, verbose=False):
                 print('[{}] use_context: {}, is_def: {}, method_of: None, loc: {}'.format(f.fq_name, use_context, f.is_definition, f.location))
 
     return funcs
+
+def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDatabase, verbose=False):
+    funcs : list[FunctionEntry] = []
+    
+    def function_declaration_visitor(func_cursor: clang.cindex.Cursor):
+        def function_call_visitor(call_cursor: clang.cindex.Cursor):
+            definition = call_cursor.get_definition()
+            if definition is not None:
+                func_db.add_call(func_cursor.mangled_name, definition.mangled_name)
+
+            return True
+        visit_cursor(func_cursor, [CursorKind.CALL_EXPR], function_call_visitor)
+
+    visit_cursor(ctx.tu.cursor, [CursorKind.FUNCTION_DECL, CursorKind.CXX_METHOD], function_declaration_visitor)
+
+    func_db.compute_context_need()
+
+    print('--- NEED CONTEXT ---')
+    for decl in func_db.iter_declarations():
+        if decl.need_context_param:
+            print(decl.fq_name)
 
 def make_signature(params: list[FunctionParameter], with_default=True) -> str:
     """
@@ -309,6 +412,7 @@ def run_research(args, config):
 #include "imgui_draw.cpp"\n
 #include "imgui_tables.cpp"\n
 #include "imgui_widgets.cpp"\n
+#include "imgui_demo.cpp"\n
 '''
 
     index = clang.cindex.Index.create()
@@ -320,7 +424,9 @@ def run_research(args, config):
         for d in tu.diagnostics:
             print(d)
 
-    find_function(ctx, config, verbose=args.verbose)
+    funcs = find_function(ctx, config, verbose=args.verbose)
+    func_db = FunctionDatabase(ctx, funcs)
+    find_function_call(ctx, config, func_db, verbose=args.verbose)
 
 def dump_test_ast(args, config):
     index = clang.cindex.Index.create()
