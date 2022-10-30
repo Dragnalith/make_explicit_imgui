@@ -16,8 +16,8 @@
 - [ ] Find all function definition
   - [X] Discriminate if function or method, if method find the type
   - [X] Discriminate if use implicit context or not
-  - [ ] Find Text location
-  - [ ] Replace the old api parsing with this new code
+  - [X] Find Text location
+  - [X] Replace the old api parsing with this new code
 - [ ] Build call graph and find which function depends on the implicit context
 - [ ] Find all call expression
   - [ ] With source location

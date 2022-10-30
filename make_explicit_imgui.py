@@ -15,6 +15,31 @@ WHITELIST = set([
     'CallContextHooks'
 ])
 
+class CodeRange:
+    def __init__(self, file, start_line, start_column, end_line, end_column):
+        self.file = file
+        self.start_line = start_line
+        self.start_column = start_column
+        self.end_line = end_line
+        self.end_column = end_column
+
+    @staticmethod
+    def from_source_range(source_range: clang.cindex.SourceRange):
+        start : clang.cindex.SourceLocation = source_range.start
+        end : clang.cindex.SourceLocation = source_range.end
+
+        start_file = pathlib.Path(str(start.file))
+        end_file = pathlib.Path(str(end.file))
+        assert start_file == end_file, "start file ({}) and end of file ({}) does not match".format(start.file, end.file)
+
+        return CodeRange(start_file, start.line, start.column, end.line, end.column)
+
+    @staticmethod
+    def from_source_location(source_location: clang.cindex.SourceLocation, offset: int):
+        file = pathlib.Path(str(source_location.file))
+
+        return CodeRange(file, source_location.line, source_location.column, source_location.line, source_location.column + offset)
+
 class Config:
     def __init__(self, root_folder):
         self.imgui_h = root_folder / 'imgui.h'
@@ -53,24 +78,14 @@ class ParsingContext:
             lines += list(file)
         self._sources[path] = lines
 
-    def get_string(self, source_range: clang.cindex.SourceRange):
-        start : clang.cindex.SourceLocation = source_range.start
-        end : clang.cindex.SourceLocation = source_range.end
-
-        start_file = pathlib.Path(str(start.file))
-        end_file = pathlib.Path(str(end.file))
-        assert start_file == end_file, "start file ({}) and end of file ({}) does not match".format(start.file, end.file)
-
-        if start_file not in self._sources:
-            return None
-
-        source = self._sources[start_file]
+    def get_string(self, code_range: CodeRange):
+        source = self._sources[code_range.file]
         
         # Be careful line and column start index is '1'
         # but array start index is '0' so we need to subtract 1.
 
-        if start.line == end.line:
-            return source[start.line - 1][start.column - 1:end.column-1]
+        if code_range.start_line == code_range.end_line:
+            return source[code_range.start_line - 1][code_range.start_column - 1:code_range.end_column-1]
 
         else:
             assert False, "`get_string(...)` is not implemented for multiline source range yet"
@@ -129,11 +144,12 @@ class FunctionEntry:
 
         arg : clang.cindex.Cursor
         for arg in cursor.get_arguments():
-            declaration = ctx.get_string(arg.extent)
+            declaration = ctx.get_string(CodeRange.from_source_range(arg.extent))
             assert declaration is not None, "Cannot parse declaration of this arg: {} '{}'".format(arg.kind, arg.spelling)
             params.append(FunctionParameter(arg.spelling, arg.type.spelling, declaration))
 
         self.name : str = cursor.spelling
+        self.code_range : CodeRange = CodeRange.from_source_location(cursor.location, len(cursor.spelling))
         self.fq_name : str = get_fully_qualified_name(cursor)
         self.return_type : str = format_type_name(cursor.type.get_result().spelling)
         self.params : list[FunctionParameter] = params
@@ -147,10 +163,10 @@ class FunctionEntry:
         if self.is_method:
             self.class_type = get_fully_qualified_name(cursor.semantic_parent)
 
-        self.use_implicit_context = False
+        self.implicit_context = None
         for child in iterate_recursive(cursor):
             if child.spelling == 'GImGui':
-                self.use_implicit_context = True
+                self.implicit_context = child.extent
                 break
 
         assert self.name is not None
@@ -188,21 +204,16 @@ def print_cursor(cursor: clang.cindex.Cursor, indent='', write_func=default_writ
 def print_type(type: clang.cindex.Type, indent='', write_func=default_write_func):
     write_func('{indent}TYPE - {kind}: spelling: {spelling}'.format(indent=indent, kind=type.kind, spelling=type.spelling))
 
-def parse(ctx: ParsingContext, verbose=False) -> list[FunctionEntry]:
+def parse(ctx: ParsingContext, config: Config, verbose=False) -> list[FunctionEntry]:
     """
         Parse a translation unit, find all ImGui api.
         Return a list of FunctionEntry contains all api found
     """
     apis : list[FunctionEntry] = []
 
-    child : clang.cindex.Cursor
-    for child in ctx.tu.cursor.get_children():
-        if (child.kind == clang.cindex.CursorKind.NAMESPACE):
-            for c in child.get_children():
-                if c.kind in [CursorKind.FUNCTION_DECL]:
-                    func = FunctionEntry(ctx, c)
-                    if func.is_api:
-                        apis.append(func)
+    for f in find_function(ctx, config, verbose=verbose):
+        if f.is_api and f.code_range.file == config.imgui_h:
+            apis.append(f)
     
     return apis
 
@@ -231,7 +242,7 @@ def visit_cursor(parent: clang.cindex.Cursor, requested_kinds: CursorKind , call
             visit_cursor(cursor, requested_kinds, callback)
     return
 
-def find_function(ctx: ParsingContext, verbose=False):
+def find_function(ctx: ParsingContext, config: Config, verbose=False):
     """
         Build Call Graph to find which function depend on
         an implict ImGuiContent.
@@ -254,12 +265,15 @@ def find_function(ctx: ParsingContext, verbose=False):
 
     visit_cursor(ctx.tu.cursor, [CursorKind.FUNCTION_DECL, CursorKind.CXX_METHOD], add_function_visitor)
 
-    for f in funcs:
-        use_context = 'YES' if f.use_implicit_context else 'NO'
-        if f.is_method:
-            print('[{}] use_context: {}, is_def: {}, method_of: {}, loc: {}'.format(f.fq_name, use_context, f.is_definition, f.class_type, f.location))
-        else:
-            pass#print('[{}] use_context: {}, is_def: {}, method_of: None, loc: {}'.format(f.fq_name, use_context, f.is_definition, f.location))
+    if verbose:
+        for f in funcs:
+            use_context = 'YES' if f.implicit_context is not None else 'NO'
+            if f.is_method:
+                print('[{}] use_context: {}, is_def: {}, method_of: {}, loc: {}'.format(f.fq_name, use_context, f.is_definition, f.class_type, f.location))
+            else:
+                print('[{}] use_context: {}, is_def: {}, method_of: None, loc: {}'.format(f.fq_name, use_context, f.is_definition, f.location))
+
+    return funcs
 
 def make_signature(params: list[FunctionParameter], with_default=True) -> str:
     """
@@ -306,7 +320,7 @@ def run_research(args, config):
         for d in tu.diagnostics:
             print(d)
 
-    find_function(ctx, verbose=args.verbose)
+    find_function(ctx, config, verbose=args.verbose)
 
 def dump_test_ast(args, config):
     index = clang.cindex.Index.create()
@@ -351,7 +365,7 @@ def generate(args, config):
         for d in tu.diagnostics:
             print(d)
 
-    apis = parse(ctx, verbose=args.verbose)
+    apis = parse(ctx, config, verbose=args.verbose)
     if args.print:
         for api in apis:
             print(api)
