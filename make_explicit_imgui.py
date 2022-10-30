@@ -1,5 +1,4 @@
-from ast import Call
-from cmath import exp
+import subprocess
 from re import U
 import clang.cindex
 from clang.cindex import CursorKind, TypeKind
@@ -52,6 +51,7 @@ class CodeRange:
 
 class Config:
     def __init__(self, root_folder):
+        self.root_folder = root_folder
         self.imgui_h = root_folder / 'imgui.h'
         self.imgui_internal_h = root_folder / 'imgui_internal.h'
         self.imgui_cpp = root_folder / 'imgui.cpp'
@@ -73,10 +73,48 @@ class Config:
             self.imgui_demo
         ])
 
+class SourceLine:
+    def __init__(self, line):
+        self.line = line
+        self.replace_context = False
+        self.transform_call = set()
+        self.transform_proto = None
+        self.delete = False
+
+    def request_replace_context(self):
+        assert not self.replace_context
+        self.replace_context = True
+
+    def request_replace_proto(self, name):
+        assert self.transform_proto is None
+        self.transform_proto = name
+
+    def request_replace_call(self, name):
+        self.transform_call.add(name)
+
+    def transform(self):
+        if self.replace_context:
+            self.line = self.line.replace('GImGui', 'ctx')
+
+        if self.transform_proto is not None:
+            no_param_proto = self.transform_proto + '()'
+            if no_param_proto in self.line:
+                self.line = self.line.replace(no_param_proto, self.transform_proto + '(ImGuiContext* ctx)')
+            else:
+                self.line = self.line.replace(self.transform_proto + '(', self.transform_proto + '(ImGuiContext* ctx, ')
+
+        for call in self.transform_call:
+            no_param_proto = call + '()'
+            if no_param_proto in self.line:
+                self.line = self.line.replace(no_param_proto, call + '(ctx)')
+            else:
+                self.line = self.line.replace(call + '(', call + '(ctx, ')
+
+
 class ParsingContext:
     def __init__(self, tu: clang.cindex.TranslationUnit, config: Config):
         self.tu = tu
-        self._sources = dict()
+        self._sources : dict[SourceLine] = dict()
         self.config = config
         for source in config.imgui_sources:
             self._add_source(source)
@@ -88,14 +126,14 @@ class ParsingContext:
         lines = []
         with open(path) as file:
             lines += list(file)
-        self._sources[path] = lines
+        self._sources[path] = [SourceLine(line) for line in lines]
 
     def get_line(self, path, line):
         if isinstance(path, str):
             path = pathlib.Path(path)
 
         assert path in self._sources
-        return self._sources[path][line - 1]
+        return self._sources[path][line - 1].line
 
     def get_string(self, code_range: CodeRange):
         source = self._sources[code_range.file]
@@ -104,10 +142,29 @@ class ParsingContext:
         # but array start index is '0' so we need to subtract 1.
 
         if code_range.start_line == code_range.end_line:
-            return source[code_range.start_line - 1][code_range.start_column - 1:code_range.end_column-1]
+            return source[code_range.start_line - 1].line[code_range.start_column - 1:code_range.end_column-1]
 
         else:
             assert False, "`get_string(...)` is not implemented for multiline source range yet"
+
+    def request_replace_context(self, path, line):
+        assert path in self._sources
+        self._sources[path][line - 1].request_replace_context()
+
+    def request_replace_proto(self, path, line, name):
+        assert path in self._sources
+        self._sources[path][line - 1].request_replace_proto(name)
+
+    def request_replace_call(self, path, line, name):
+        assert path in self._sources
+        self._sources[path][line - 1].request_replace_call(name)
+
+    def transform_sources(self):
+        for path, source in self._sources.items():
+            with open(path, 'w') as file:
+                for l in source:
+                    l.transform()
+                    file.write(l.line)
 
 def format_type_name(type_name):
     """
@@ -186,10 +243,10 @@ class FunctionEntry:
 
         self.visited = False
         self.need_context_param = False
-        self.implicit_context = None
+        self.implicit_context : CodeRange = None
         for child in iterate_recursive(cursor):
             if child.spelling == 'GImGui':
-                self.implicit_context = child.extent
+                self.implicit_context = CodeRange.from_source_range(child.extent)
                 break
 
         assert self.name is not None
@@ -399,14 +456,6 @@ def find_function(ctx: ParsingContext, config: Config, verbose=False):
 
     visit_cursor(ctx.tu.cursor, [CursorKind.FUNCTION_DECL, CursorKind.CXX_METHOD], add_function_visitor)
 
-    if verbose:
-        for f in funcs:
-            use_context = 'YES' if f.implicit_context is not None else 'NO'
-            if f.is_method:
-                print('[{}] use_context: {}, is_def: {}, method_of: {}, loc: {}'.format(f.fq_name, use_context, f.is_definition, f.class_type, f.location))
-            else:
-                print('[{}] use_context: {}, is_def: {}, method_of: None, loc: {}'.format(f.fq_name, use_context, f.is_definition, f.location))
-
     return funcs
 
 def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDatabase, verbose=False):
@@ -439,16 +488,21 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
     print('--- REMOVE GLOBAL CONTEXT ---')
     for func in func_db.iter_definitions():
         if func.implicit_context is not None:
-            print('Replace `GImGui` with `context` in {} at {}'.format(func.fq_name, func.implicit_context))
+            ctx.request_replace_context(func.implicit_context.file, func.implicit_context.start_line)
+            if verbose:
+                print('Replace `GImGui` with `context` in {} at {}'.format(func.fq_name, func.implicit_context))
     print('--- ADD CONTEXT PARAMETER ---')
     for func in func_db.iter():
         if func.need_context_param:
-            print('Add `ImGuiContext* context` to {} at {}'.format(func.fq_name, func.code_range))
+            ctx.request_replace_proto(func.code_range.file, func.code_range.start_line, func.name)
+            if verbose:
+                print('Add `ImGuiContext* context` to {} at {}'.format(func.fq_name, func.code_range))
     print('--- FORWARD CONTEXT ---')
     for call in func_db.iter_calls():
-        print(call.callee.fq_name)
         if call.callee.need_context_param:
-            print('Forward `context` to {} at {}'.format(call.callee.fq_name, call.code_range))
+            ctx.request_replace_call(call.code_range.file, call.code_range.start_line, call.callee.name)
+            if verbose:
+                print('Forward `context` to {} at {}'.format(call.callee.fq_name, call.code_range))
 
 def make_signature(params: list[FunctionParameter], with_default=True) -> str:
     """
@@ -489,6 +543,9 @@ def run_research(args, config):
 
     index = clang.cindex.Index.create()
 
+    subprocess.run(['git', 'clean', '-xdf'], cwd=config.root_folder)
+    subprocess.run(['git', 'checkout', '-f'], cwd=config.root_folder)
+
     tu = index.parse(config.tmp, unsaved_files=[(config.tmp, tmp_content)], args=['-std=c++17'])
     ctx = ParsingContext(tu, config)
 
@@ -499,6 +556,9 @@ def run_research(args, config):
     funcs = find_function(ctx, config, verbose=args.verbose)
     func_db = FunctionDatabase(ctx, funcs)
     find_function_call(ctx, config, func_db, verbose=args.verbose)
+
+    if args.execute:
+        ctx.transform_sources()
 
 def dump_test_ast(args, config):
     index = clang.cindex.Index.create()
