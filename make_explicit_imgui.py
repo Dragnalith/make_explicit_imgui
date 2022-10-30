@@ -1,3 +1,5 @@
+from ast import Call
+from cmath import exp
 from re import U
 import clang.cindex
 from clang.cindex import CursorKind, TypeKind
@@ -17,11 +19,19 @@ WHITELIST = set([
 
 class CodeRange:
     def __init__(self, file, start_line, start_column, end_line, end_column):
+        if isinstance(file, str):
+            file = pathlib.Path(file)
+
         self.file = file
         self.start_line = start_line
         self.start_column = start_column
         self.end_line = end_line
         self.end_column = end_column
+
+
+    def __str__(self):
+        assert self.start_line == self.end_line
+        return '{}:{}:{}-{}'.format(self.file, self.start_line, self.start_column, self.end_column)
 
     @staticmethod
     def from_source_range(source_range: clang.cindex.SourceRange):
@@ -79,6 +89,13 @@ class ParsingContext:
         with open(path) as file:
             lines += list(file)
         self._sources[path] = lines
+
+    def get_line(self, path, line):
+        if isinstance(path, str):
+            path = pathlib.Path(path)
+
+        assert path in self._sources
+        return self._sources[path][line - 1]
 
     def get_string(self, code_range: CodeRange):
         source = self._sources[code_range.file]
@@ -206,6 +223,24 @@ class FunctionEntry:
             suffix=suffix
         )
 
+class CallEntry:
+    def __init__(self, caller, callee, code_range):
+        self.id = (code_range.file, code_range.start_line, code_range.start_column)
+        self.caller = caller
+        self.callee = callee
+        self.code_range = code_range
+
+    def __key(self):
+        return self.id
+
+    def __hash__(self):
+        return hash(self.__key())
+
+    def __eq__(self, other):
+        if isinstance(other, CallEntry):
+            return self.__key() == other.__key()
+        return NotImplemented
+
 class FunctionDatabase:
     """
         Assumption all entry always at least a definition, and sometimes a declaration too.
@@ -214,8 +249,9 @@ class FunctionDatabase:
         self._ctx = ctx
         self._declarations : dict[FunctionEntry] = dict()
         self._definitions : dict[FunctionEntry] = dict()
-        self._func_to_call : dict[FunctionEntry, set(FunctionEntry)] = dict()
-        self._call_to_func : dict[FunctionEntry, set(FunctionEntry)] = dict()
+        self._caller_to_call : dict[FunctionEntry, set(CallEntry)] = dict()
+        self._callee_to_call : dict[FunctionEntry, set(CallEntry)] = dict()
+        self._calls : dict[CallEntry, CallEntry] = dict();
         for f in funcs:
             if f.is_definition:
                 assert f.id not in self._definitions
@@ -232,8 +268,8 @@ class FunctionDatabase:
             assert f.id in self._definitions
 
         for f in self._definitions.values():
-            self._func_to_call[f] = set()
-            self._call_to_func[f] = set()
+            self._caller_to_call[f] = set()
+            self._callee_to_call[f] = set()
             if f.id not in self._declarations:
                 self._declarations[f.id] = f
 
@@ -241,27 +277,43 @@ class FunctionDatabase:
         for decl in self._declarations.values():
             yield decl
 
-    def add_call(self, func_id: str, call_id: str):
-        func = self._definitions.get(func_id)
-        call = self._definitions.get(call_id)
-        if func is not None and call is not None:
-            self._call_to_func[call].add(func)
-            self._func_to_call[func].add(call)
+    def iter_definitions(self) -> Iterable[FunctionEntry]:
+        for decl in self._definitions.values():
+            yield decl
 
-    def dump_func_to_call(self):
-        for func, callees in self._func_to_call.items():
-            print(func.fq_name + ':')
-            for call in callees:
-                print('    * ' + call.fq_name)
+    def iter_calls(self) -> Iterable[CallEntry]:
+        for call in self._calls.values():
+            yield call
+
+    def iter(self) -> Iterable[FunctionEntry]:
+        for id in self._definitions.keys():
+            decl = self._declarations[id]
+            definition = self._definitions[id]
+            if decl.code_range != definition.code_range:
+                yield decl
+            yield definition
+
+    def add_call(self, caller_id: str, callee_id: str, code_range: CodeRange):
+        caller = self._definitions.get(caller_id)
+        callee = self._definitions.get(callee_id)
+        if caller is not None and callee is not None:
+            call = CallEntry(caller, callee, code_range)
+            if call in self._calls:
+                prev_call = self._calls[call]
+                assert call not in self._calls
+
+            self._calls[call] = call
+            self._caller_to_call[caller].add(call)
+            self._callee_to_call[callee].add(call)
 
     def compute_context_need(self):
-        for call, funcs in self._call_to_func.items():
-            if call.implicit_context is not None:
-                self._set_need_context_recursive(call)
+        for id, func in self._definitions.items():
+            if func.implicit_context is not None:
+                self._set_need_context_recursive(func)
 
-    def _set_need_context_recursive(self, call):
-        decl_entry = self._declarations[call.id]
-        def_entry = self._definitions[call.id]
+    def _set_need_context_recursive(self, callee):
+        decl_entry = self._declarations[callee.id]
+        def_entry = self._definitions[callee.id]
         if def_entry.visited:
             assert decl_entry.visited
             return
@@ -271,8 +323,8 @@ class FunctionDatabase:
         def_entry.visited = True
         decl_entry.visited = True
 
-        for func in self._call_to_func[call]:
-            self._set_need_context_recursive(func)
+        for call in self._callee_to_call[callee]:
+            self._set_need_context_recursive(call.caller)
 
 def default_write_func(x):
     print(x)
@@ -363,8 +415,19 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
     def function_declaration_visitor(func_cursor: clang.cindex.Cursor):
         def function_call_visitor(call_cursor: clang.cindex.Cursor):
             definition = call_cursor.get_definition()
-            if definition is not None:
-                func_db.add_call(func_cursor.mangled_name, definition.mangled_name)
+            if definition is not None and pathlib.Path(str(definition.location.file)) in config.imgui_sources and pathlib.Path(str(call_cursor.location.file)) in config.imgui_sources:
+                call_file_path = str(call_cursor.location.file)
+                call_line = call_cursor.location.line
+                line = ctx.get_line(call_file_path, call_line)
+                offset = line.find(call_cursor.spelling, call_cursor.location.column - 1) + 1
+                if offset > 0:
+                    lenght = len(call_cursor.spelling)
+                    code_range = CodeRange(call_file_path, call_line, offset, call_line, offset + lenght)
+                    extent = ctx.get_string(code_range)
+                    assert extent == call_cursor.spelling
+                    func_db.add_call(func_cursor.mangled_name, definition.mangled_name, code_range)
+                else:
+                    print('WARNING: {} cannot be found at {}'.format(call_cursor.spelling, call_cursor.location))
 
             return True
         visit_cursor(func_cursor, [CursorKind.CALL_EXPR], function_call_visitor)
@@ -373,10 +436,19 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
 
     func_db.compute_context_need()
 
-    print('--- NEED CONTEXT ---')
-    for decl in func_db.iter_declarations():
-        if decl.need_context_param:
-            print(decl.fq_name)
+    print('--- REMOVE GLOBAL CONTEXT ---')
+    for func in func_db.iter_definitions():
+        if func.implicit_context is not None:
+            print('Replace `GImGui` with `context` in {} at {}'.format(func.fq_name, func.implicit_context))
+    print('--- ADD CONTEXT PARAMETER ---')
+    for func in func_db.iter():
+        if func.need_context_param:
+            print('Add `ImGuiContext* context` to {} at {}'.format(func.fq_name, func.code_range))
+    print('--- FORWARD CONTEXT ---')
+    for call in func_db.iter_calls():
+        print(call.callee.fq_name)
+        if call.callee.need_context_param:
+            print('Forward `context` to {} at {}'.format(call.callee.fq_name, call.code_range))
 
 def make_signature(params: list[FunctionParameter], with_default=True) -> str:
     """

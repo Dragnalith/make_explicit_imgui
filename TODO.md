@@ -20,7 +20,6 @@
   - [X] Replace the old api parsing with this new code
 - [X] Fix function database: Need better identification for function than just name
 - [X] Build call graph and find which function depends on the implicit context
-- [ ] Find all call location
-- [ ] Keep only call expression defined in imgui code
-- [ ] Separate imguiex.h from imguiex_internal.h
-- [ ] How to deal with API comment?
+- [X] Find all call location
+- [ ] Apply modification
+- [ ] Handle function which already have an unused ctx parameter (like in imgui_tables.cpp)
