@@ -22,8 +22,9 @@ class Config:
         self.imguiex_cpp = root_folder / 'imguiex.cpp'
         self.imgui_internal_h = root_folder / 'imgui_internal.h'
         self.imgui_cpp = root_folder / 'imgui.cpp'
-        self.imgui_tables = root_folder / 'imgui_tables.h'
-        self.imgui_widgets = root_folder / 'imgui_widgets.h'
+        self.imgui_tables = root_folder / 'imgui_tables.cpp'
+        self.imgui_widgets = root_folder / 'imgui_widgets.cpp'
+        self.imgui_draw = root_folder / 'imgui_draw.cpp'
         self.tmp = root_folder / 'tmp.cpp'
 
 class ParsingContext:
@@ -109,7 +110,21 @@ class ApiEntry:
         assert self.return_type is not None
 
     def __str__(self):
-        return 'IMGUI {name}(...);'.format(name=self.name)
+        params = self.params
+        arg_offset = 0
+
+        suffix = ''
+        if self.fmtlist > 0:
+            suffix = ' IM_FMTLIST({})'.format(self.fmtlist + arg_offset)
+        if self.fmtargs > 0:
+            suffix = ' IM_FMTARGS({})'.format(self.fmtargs + arg_offset)
+            params = params + [ApiParameter('...', '', '...')]
+        return 'IMGUI_API {type} {name}({signature}){suffix};'.format(
+            type=self.return_type, 
+            name=self.name, 
+            signature=make_signature(params),
+            suffix=suffix
+        )
 
 def rprint_cursor(cursor: clang.cindex.Cursor, indent=''):
     print_cursor(cursor, indent)
@@ -307,25 +322,30 @@ def replace_in_file(path, pairs):
     with open(path, 'w') as file:
         file.write(filedata)
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('repository_path', action='store', type=str, help="path to the root of dear imgui repository")
-    parser.add_argument('-v', '--verbose', action='store_true', default=False)
-    parser.add_argument('-p', '--print', action='store_true', default=False)
-    parser.add_argument('-x', '--execute', action='store_true', default=False, help="Actually do the imgui repository conversion")
-    args = parser.parse_args()
-
-    root_folder = pathlib.Path(args.repository_path)
-
-    config = Config(root_folder)
-
-    tmp_content2 = \
+def run_research(args, config):
+    tmp_content = \
 '''
-#include "imgui.cpp"\n
+//#include "imgui.cpp"\n
 #include "imgui_draw.cpp"\n
-#include "imgui_tables.cpp"\n
-#include "imgui_widgets.cpp"\n
+//#include "imgui_tables.cpp"\n
+//#include "imgui_widgets.cpp"\n
 '''
+
+    index = clang.cindex.Index.create()
+
+
+    tu = index.parse(config.tmp, unsaved_files=[(config.tmp, tmp_content)], args=['-std=c++17'])
+    ctx = ParsingContext(tu)
+    ctx.add_source(config.imgui_h)
+    ctx.add_source(config.imgui_internal_h)
+
+    if len(tu.diagnostics) > 0:
+        for d in tu.diagnostics:
+            print(d)
+
+    parse_function_call(ctx, verbose=args.verbose)
+
+def generate(args, config):
     tmp_content = \
 '''
 #define IM_FMTARGS(x) __attribute__((annotate("IM_FMTARGS(" #x ")")))
@@ -337,30 +357,24 @@ def main():
 
     index = clang.cindex.Index.create()
 
-    # replace_in_file(config.imgui_h, [
-    #     ('#define IM_FMTARGS', '//TMP#define IM_FMTARGS'),
-    #     ('#define IM_FMTLIST', '//TMP#define IM_FMTLIST'),
-    # ])
+    replace_in_file(config.imgui_h, [
+        ('#define IM_FMTARGS', '//TMP#define IM_FMTARGS'),
+        ('#define IM_FMTLIST', '//TMP#define IM_FMTLIST'),
+    ])
 
-    tu = index.parse(config.tmp, unsaved_files=[(config.tmp, tmp_content2)], args=['-std=c++17', '-I{}'.format(root_folder)])
+    tu = index.parse(config.tmp, unsaved_files=[(config.tmp, tmp_content)], args=['-std=c++17'])
     ctx = ParsingContext(tu)
     ctx.add_source(config.imgui_h)
     ctx.add_source(config.imgui_internal_h)
 
-    # replace_in_file(config.imgui_h, [
-    #     ('//TMP#define IM_FMTARGS', '#define IM_FMTARGS'),
-    #     ('//TMP#define IM_FMTLIST', '#define IM_FMTLIST'),
-    # ])
+    replace_in_file(config.imgui_h, [
+        ('//TMP#define IM_FMTARGS', '#define IM_FMTARGS'),
+        ('//TMP#define IM_FMTLIST', '#define IM_FMTLIST'),
+    ])
 
     if len(tu.diagnostics) > 0:
         for d in tu.diagnostics:
             print(d)
-        print('Clang parsing encounter some issues... abort...')
-        #return
-
-    parse_function_call(ctx, verbose=args.verbose)
-
-    return
 
     apis = parse(ctx, verbose=args.verbose)
     if args.print:
@@ -422,6 +436,24 @@ def main():
                     file.write('        va_end(args);\n');
                 file.write('    }\n')
             file.write('}\n')
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('repository_path', action='store', type=str, help="path to the root of dear imgui repository")
+    parser.add_argument('-v', '--verbose', action='store_true', default=False)
+    parser.add_argument('-p', '--print', action='store_true', default=False)
+    parser.add_argument('-x', '--execute', action='store_true', default=False, help="Actually do the imgui repository conversion")
+    parser.add_argument('-r', '--research', action='store_true', default=False, help="Run research code made to explore how to parse imgui with libclang")
+    args = parser.parse_args()
+
+    root_folder = pathlib.Path(args.repository_path)
+
+    config = Config(root_folder)
+
+    if args.research:
+        run_research(args, config)
+    else:
+        generate(args, config)
 
 if __name__ == '__main__':
     main()
