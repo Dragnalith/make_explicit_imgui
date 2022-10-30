@@ -147,6 +147,12 @@ class FunctionEntry:
         if self.is_method:
             self.class_type = get_fully_qualified_name(cursor.semantic_parent)
 
+        self.use_implicit_context = False
+        for child in iterate_recursive(cursor):
+            if child.spelling == 'GImGui':
+                self.use_implicit_context = True
+                break
+
         assert self.name is not None
         assert self.return_type is not None
 
@@ -200,13 +206,11 @@ def parse(ctx: ParsingContext, verbose=False) -> list[FunctionEntry]:
     
     return apis
 
-def iterate_namespace(cursor: clang.cindex.Cursor) -> Iterable[clang.cindex.Cursor]:
-    child : clang.cindex.Cursor
-    for child in cursor.get_children():
-        if (child.kind == clang.cindex.CursorKind.NAMESPACE):
-            for subchild in iterate_namespace(child):
-                yield subchild
-        else:
+def iterate_recursive(parent: clang.cindex.Cursor) -> Iterable[clang.cindex.Cursor]:
+    cursor : clang.cindex.Cursor
+    for cursor in parent.get_children():
+        yield cursor
+        for child in iterate_recursive(cursor):
             yield child
 
 def get_fully_qualified_name(cursor: clang.cindex.Cursor):
@@ -251,10 +255,11 @@ def find_function(ctx: ParsingContext, verbose=False):
     visit_cursor(ctx.tu.cursor, [CursorKind.FUNCTION_DECL, CursorKind.CXX_METHOD], add_function_visitor)
 
     for f in funcs:
+        use_context = 'YES' if f.use_implicit_context else 'NO'
         if f.is_method:
-            print('[{}] is_def: {}, method_of: {}, loc: {}'.format(f.fq_name, f.is_definition, f.class_type, f.location))
+            print('[{}] use_context: {}, is_def: {}, method_of: {}, loc: {}'.format(f.fq_name, use_context, f.is_definition, f.class_type, f.location))
         else:
-            print('[{}] is_def: {}, method_of: None, loc: {}'.format(f.fq_name, f.is_definition, f.location))
+            pass#print('[{}] use_context: {}, is_def: {}, method_of: None, loc: {}'.format(f.fq_name, use_context, f.is_definition, f.location))
 
 def make_signature(params: list[FunctionParameter], with_default=True) -> str:
     """

@@ -15,7 +15,8 @@
 - [X] Separate code path to find API from code path finding all function definition and call expression
 - [ ] Find all function definition
   - [X] Discriminate if function or method, if method find the type
-  - [ ] Discriminate if use implicit context or not
+  - [X] Discriminate if use implicit context or not
+  - [ ] Find Text location
   - [ ] Replace the old api parsing with this new code
 - [ ] Build call graph and find which function depends on the implicit context
 - [ ] Find all call expression
