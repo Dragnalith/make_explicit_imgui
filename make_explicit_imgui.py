@@ -228,6 +228,20 @@ class ParsingContext:
         assert path in self._sources
         return self._sources[path][line - 1].line
 
+    def find_until(self, path, line_num : int, column_num : int,  search_char : str) -> CodeRange:
+        """
+            Find a string `symbol` in a line and return a CodeRange. Start search at `column_num`
+        """
+        if not isinstance(path, pathlib.Path):
+            path = pathlib.Path(str(path))
+
+        line = self.get_line(path, line_num)
+        for i in range(column_num - 1, len(line)):
+            if line[i] == search_char:
+                return CodeRange(path, line_num, column_num, line_num, i + 2) # +1 to include to searched char, +1 for index to column
+
+        return None
+
     def find_symbol(self, path, line_num : int, column_num : int,  symbol : str) -> CodeRange:
         """
             Find a string `symbol` in a line and return a CodeRange. Start search at `column_num`
@@ -426,11 +440,12 @@ class FunctionEntry:
         )
 
 class CallEntry:
-    def __init__(self, caller, callee, code_range, has_arg : bool):
+    def __init__(self, caller, callee, code_range, call_name, has_arg : bool):
         self.id = (code_range.file, code_range.start_line, code_range.start_column)
         self.caller = caller
         self.callee = callee
         self.code_range = code_range
+        self.call_name = call_name
         self.has_arg = has_arg
 
     def __key(self):
@@ -501,7 +516,7 @@ class FunctionDatabase:
                 yield decl
             yield definition
 
-    def add_call(self, caller_id: str, callee_id: str, code_range: CodeRange):
+    def add_call(self, caller_id: str, callee_id: str, code_range: CodeRange, call_name:str):
         caller = self._definitions.get(caller_id)
         callee = self._definitions.get(callee_id)
         if caller is not None and callee is not None:
@@ -510,7 +525,7 @@ class FunctionDatabase:
             param_code_range.end_column = param_code_range.start_column + 2
             text = self._ctx.get_string(param_code_range)
             assert text[0] == '('
-            call = CallEntry(caller, callee, code_range, text != '()')
+            call = CallEntry(caller, callee, code_range, call_name, text != '()')
             if call in self._calls:
                 prev_call = self._calls[call]
                 assert call not in self._calls
@@ -634,12 +649,19 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
         def function_call_visitor(call_cursor: clang.cindex.Cursor):
             definition = call_cursor.get_definition()
             if config.is_valid_func(func_cursor) and config.is_valid_func(definition):
-                code_range = ctx.find_symbol(call_cursor.location.file, call_cursor.location.line, call_cursor.location.column, call_cursor.spelling + '(')
+                extent = call_cursor.extent
+                if definition.spelling in SPECIAL_TEMPLATE_FUNC:
+                    code_range = ctx.find_until(call_cursor.location.file, call_cursor.location.line, call_cursor.location.column, '(')
+                    text = ctx.get_string(code_range)
+                    i = True
+                else:
+                    code_range = ctx.find_symbol(call_cursor.location.file, call_cursor.location.line, call_cursor.location.column, call_cursor.spelling + '(')
+
                 if code_range is not None:
                     code_range.end_column = code_range.end_column - 1 # Remove the '(')
                     text = ctx.get_string(code_range)
-                    assert text == call_cursor.spelling
-                    func_db.add_call(get_id(func_cursor), get_id(definition), code_range)
+                    assert text.startswith(call_cursor.spelling)
+                    func_db.add_call(get_id(func_cursor), get_id(definition), code_range, text)
                 elif call_cursor.spelling == 'DebugLog':
                     name, code_range = ctx.find_log_symbol(call_cursor.location)
                     assert name is not None and code_range is not None
@@ -648,9 +670,6 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
                     print('WARNING: {} cannot be found at {}'.format(call_cursor.spelling, call_cursor.location))
 
             return True
-        if func_cursor.spelling == 'CheckboxFlags' and func_cursor.location.line == 1189:
-            rprint_cursor(func_cursor)
-            i = True
         visit_cursor(func_cursor, [CursorKind.CALL_EXPR], function_call_visitor)
 
     visit_cursor(ctx.tu.cursor, [CursorKind.FUNCTION_DECL, CursorKind.CXX_METHOD, CursorKind.FUNCTION_TEMPLATE], function_declaration_visitor)
@@ -679,7 +698,7 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
     print('--- FORWARD CONTEXT ---')
     for call in func_db.iter_calls():
         if call.callee.need_context_param:
-            ctx.request_replace_call(call.code_range.file, call.code_range.start_line, call.code_range, call.callee.name, call.has_arg)
+            ctx.request_replace_call(call.code_range.file, call.code_range.start_line, call.code_range, call.call_name, call.has_arg)
             if verbose:
                 print('Forward `context` to {} at {}'.format(call.callee.fq_name, call.code_range))
     
