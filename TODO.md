@@ -30,7 +30,7 @@
 - [X] Deal with IMGUI_DEBUG_LOG*
 - [X] Do not add ImGuiContext* ctx if it already exist
 - [X] Deal with Template function in imgui_widgets.cpp
-- [ ] Rename ImGui:: to ImGuiEx::
-- [ ] Prepare imgui repository
+- [X] Rename ImGui:: to ImGuiEx:: and namespace ImGui to ImGuiEx
+- [ ] Prepare imgui repository, make class not depend on ImGui but take a context as constructor argument
 - [ ] Handle function which already have an unused ctx parameter (like in imgui_tables.cpp)
 - [ ] Generate backward compatible API

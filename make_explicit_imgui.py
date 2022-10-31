@@ -198,9 +198,14 @@ class ParsingContext:
     def __init__(self, tu: clang.cindex.TranslationUnit, config: Config):
         self.tu = tu
         self._sources : dict[pathlib.Path, list[SourceLine]] = dict()
+        self.output_sources : set[pathlib.Path] = set()
         self.config = config
         for source in config.imgui_sources:
             self._add_source(source)
+
+        for source in config.imgui_sources:
+            if source != config.imgui_demo:
+                self.output_sources.add(source)
 
         self._log_symbols = [
             'IMGUI_DEBUG_LOG',
@@ -295,10 +300,11 @@ class ParsingContext:
 
     def transform_sources(self):
         for path, source in self._sources.items():
-            with open(path, 'w') as file:
-                for l in source:
-                    l.transform()
-                    file.write(l.line)
+            if path in self.output_sources:
+                with open(path, 'w') as file:
+                    for l in source:
+                        l.transform()
+                        file.write(l.line)
 
 def format_type_name(type_name):
     """
@@ -353,6 +359,8 @@ class FunctionEntry:
                 if child.spelling.startswith('IM_FMTLIST'):
                     fmtlib = child.spelling
 
+        self.is_api=is_api
+
         arg : clang.cindex.Cursor
 
         self.imgui_context_arg : FunctionParameter = None
@@ -376,9 +384,8 @@ class FunctionEntry:
         self.param_count = len(list(cursor.type.argument_types()))
         self.fmtargs = int(fmtargs[11]) if fmtargs is not None else 0
         self.fmtlist = int(fmtlist[11]) if fmtlist is not None else 0
-        self.is_api=is_api
         self.location=cursor.location
-        self.is_method=cursor.kind == CursorKind.CXX_METHOD
+        self.is_method= (cursor.kind == CursorKind.CXX_METHOD)
         self.is_definition=cursor.is_definition()
         if self.is_method:
             self.class_type = get_fully_qualified_name(cursor.semantic_parent)
@@ -667,7 +674,8 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
                     assert name is not None and code_range is not None
                     func_db.add_log_call(name, code_range)
                 else:
-                    print('WARNING: {} cannot be found at {}'.format(call_cursor.spelling, call_cursor.location))
+                    if verbose:
+                        print('WARNING: {} cannot be found at {}'.format(call_cursor.spelling, call_cursor.location))
 
             return True
         visit_cursor(func_cursor, [CursorKind.CALL_EXPR], function_call_visitor)
@@ -716,7 +724,13 @@ def make_signature(params: list[FunctionParameter], with_default=True) -> str:
     if with_default:
         return ', '.join([str(p) for p in params])
     else:
-        return ', '.join(['{} {}'.format(p.type, p.name) for p in params])
+        def strip_after_equal(x):
+            index = x.find('=')
+            if index >= 0:
+                return x[:index]
+            else:
+                return x
+        return ', '.join([strip_after_equal(str(p)) for p in params])
 
 def make_args(params: list[FunctionParameter]) -> str:
     """
@@ -735,9 +749,12 @@ def replace_in_file(path, pairs):
     with open(path, 'w') as file:
         file.write(filedata)
 
-def run_research(args, config):
+def run_research(args, config: Config):
     tmp_content = \
 '''
+#define IM_FMTARGS(x) __attribute__((annotate("IM_FMTARGS(" #x ")")))
+#define IM_FMTLIST(x) __attribute__((annotate("IM_FMTLIST(" #x ")")))
+#define IMGUI_API __attribute__((annotate("imgui_api")))
 #include "imgui.cpp"\n
 #include "imgui_draw.cpp"\n
 #include "imgui_tables.cpp"\n
@@ -750,7 +767,18 @@ def run_research(args, config):
     if args.execute:
         subprocess.run(['git', 'checkout', '-f', '*.cpp', '*.h'], cwd=config.root_folder)
 
+    replace_in_file(config.imgui_h, [
+        ('#define IM_FMTARGS', '//TMP#define IM_FMTARGS'),
+        ('#define IM_FMTLIST', '//TMP#define IM_FMTLIST'),
+    ])
+
     tu = index.parse(config.tmp, unsaved_files=[(config.tmp, tmp_content)], args=['-std=c++17'])
+
+    replace_in_file(config.imgui_h, [
+        ('//TMP#define IM_FMTARGS', '#define IM_FMTARGS'),
+        ('//TMP#define IM_FMTLIST', '#define IM_FMTLIST'),
+    ])
+
     ctx = ParsingContext(tu, config)
 
     if len(tu.diagnostics) > 0:
@@ -763,6 +791,77 @@ def run_research(args, config):
 
     if args.execute:
         ctx.transform_sources()
+
+        apis = [f for f in func_db.iter() if f.is_api and f.code_range.file == config.imgui_h and not f.is_method]
+
+
+        print('--- MODIFY NAMESPACE ---')
+
+        for source in ctx.output_sources:
+            replace_in_file(source, [
+                ('namespace ImGui', 'namespace ImGuiEx'),
+                ('ImGui::', 'ImGuiEx::')
+            ])
+
+        print('--- GENERATE imguiex.h, imguiex.cpp ---')
+
+        with open(config.imguiex_h, 'w', encoding='utf-8') as file:
+            context_param : FunctionParameter = FunctionParameter('context', 'ImGuiContext*', None, None)
+            file.write('#include "imgui.h"\n')
+            file.write('#include "imgui_internal.h"\n\n')
+            file.write('namespace ImGui\n')
+            file.write('{\n')
+            for api in apis:
+                if api.name in BLACKLIST:
+                    continue
+
+                params = api.params
+                arg_offset = 0
+                suffix = ''
+                if api.fmtlist > 0:
+                    suffix = ' IM_FMTLIST({})'.format(api.fmtlist + arg_offset)
+                if api.fmtargs > 0:
+                    suffix = ' IM_FMTARGS({})'.format(api.fmtargs + arg_offset)
+                    params = params + [FunctionParameter('...', '', '...', None)]
+                file.write('    IMGUI_API {type} {name}({signature}){suffix};\n'.format(
+                    type=api.return_type, 
+                    name=api.name, 
+                    signature=make_signature(params),
+                    suffix=suffix
+                ))
+            file.write('}\n')
+            
+        with open(config.imguiex_cpp, 'w', encoding='utf-8') as file:
+            context_arg : FunctionParameter = FunctionParameter('GImGui', 'ImGuiContext*', None, None)
+            file.write('#include "imgui.h"\n')
+            file.write('#include "imguiex.h"\n\n')
+            file.write('ImGuiContext*   GImGui = NULL;\n\n')
+            file.write('namespace ImGui\n')
+            file.write('{\n')
+            for api in apis:
+                params = api.params
+                name = api.name
+                if api.name in BLACKLIST:
+                    continue
+
+                if api.need_context_param:
+                    args = [context_arg] + api.params
+                else:
+                    args = api.params
+
+                if api.fmtargs > 0:
+                    params = params + [FunctionParameter('...', '', '...', None)]
+                    args = args + [FunctionParameter('args', 'va_list', None, None)]
+                    name = name + 'V'
+                file.write('    {type} {name}({signature}) {{\n'.format(type=api.return_type, name=api.name, signature=make_signature(params, with_default=False)))
+                if (api.fmtargs) > 0:
+                    file.write('        va_list args;\n');
+                    file.write('        va_start(args, fmt);\n');
+                file.write('        ImGuiEx::{name}({args});\n'.format(name=name,args=make_args(args)))
+                if (api.fmtargs) > 0:
+                    file.write('        va_end(args);\n');
+                file.write('    }\n')
+            file.write('}\n')
 
 def dump_test_ast(args, config):
     index = clang.cindex.Index.create()
