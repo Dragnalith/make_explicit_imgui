@@ -29,6 +29,6 @@
 - [X] Fix: call expression is not necessarify the same as function parameter count because some parameter have default value
 - [X] Deal with IMGUI_DEBUG_LOG*
 - [ ] Do not ImGuiContext* ctx if it already exist
-- [ ] How to deal with template function?
+- [ ] Deal with Template function in imgui_widgets.cpp
 - [ ] Handle function which already have an unused ctx parameter (like in imgui_tables.cpp)
 - [ ] Generate backward compatible API

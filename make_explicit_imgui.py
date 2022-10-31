@@ -67,6 +67,7 @@ class Config:
     def __init__(self, root_folder):
         self.root_folder = root_folder
         self.imgui_h = root_folder / 'imgui.h'
+        self.imstb_textedit = root_folder / 'imstb_textedit.h'
         self.imgui_internal_h = root_folder / 'imgui_internal.h'
         self.imgui_cpp = root_folder / 'imgui.cpp'
         self.imgui_tables = root_folder / 'imgui_tables.cpp'
@@ -84,7 +85,8 @@ class Config:
             self.imgui_tables,
             self.imgui_widgets,
             self.imgui_draw,
-            self.imgui_demo
+            self.imgui_demo,
+            self.imstb_textedit
         ])
 
         # Those API need special handling
