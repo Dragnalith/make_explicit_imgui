@@ -28,6 +28,9 @@ class CodeRange:
         self.end_column = end_column
 
 
+    def copy(self):
+        return CodeRange(self.file, self.start_line, self.start_column, self.end_line, self.end_column)
+
     def __str__(self):
         assert self.start_line == self.end_line
         return '{}:{}:{}-{}'.format(self.file, self.start_line, self.start_column, self.end_column)
@@ -73,6 +76,22 @@ class Config:
             self.imgui_demo
         ])
 
+        # Those API need special handling
+        self.blacklist = [
+            'CreateContext',
+            'DestroyContext',
+            'GetCurrentContext',
+            'SetCurrentContext',
+            'MemAlloc',
+            'MemFree',
+        ]
+
+    def is_valid_func(self, cursor):
+        return cursor is not None \
+            and pathlib.Path(str(cursor.location.file)) in self.imgui_sources \
+            and cursor.spelling not in self.blacklist
+
+
 class TransformStrRequest:
     """
         start and end are expressed in index, not in column
@@ -96,13 +115,13 @@ class SourceLine:
         assert self.replace_context is None
         self.replace_context = TransformStrRequest(implicit_context.start_column - 1, implicit_context.end_column - 1, 'GImGui', 'ctx')
 
-    def request_replace_proto(self, code_range: CodeRange, name: str, arg_count: int):
+    def request_replace_proto(self, code_range: CodeRange, name: str, has_arg: bool):
         assert self.transform_proto is None
-        arg = 'ImGuiContext* ctx' + (', ' if arg_count > 0 else '')
+        arg = 'ImGuiContext* ctx' + (', ' if has_arg > 0 else '')
         self.transform_proto = TransformStrRequest(code_range.start_column - 1, code_range.end_column , name + '(', name + '(' + arg)
 
-    def request_replace_call(self, code_range: CodeRange, name: str, arg_count):
-        arg = 'ctx' + (', ' if arg_count > 0 else '')
+    def request_replace_call(self, code_range: CodeRange, name: str, has_arg):
+        arg = 'ctx' + (', ' if has_arg > 0 else '')
         request = TransformStrRequest(code_range.start_column - 1, code_range.end_column, name + '(', name + '(' + arg)
         self.transform_call.add(request)
 
@@ -200,13 +219,13 @@ class ParsingContext:
         assert implicit_context.file in self._sources
         self._sources[implicit_context.file][implicit_context.start_line - 1].request_replace_context(implicit_context)
 
-    def request_replace_proto(self, path : pathlib.Path, line: int, code_range: CodeRange, name: str, arg_count : int):
+    def request_replace_proto(self, path : pathlib.Path, line: int, code_range: CodeRange, name: str, has_arg : bool):
         assert path in self._sources
-        self._sources[path][line - 1].request_replace_proto(code_range, name, arg_count)
+        self._sources[path][line - 1].request_replace_proto(code_range, name, has_arg)
 
-    def request_replace_call(self, path : pathlib.Path, line: int, code_range: CodeRange, name: str, arg_count : int):
+    def request_replace_call(self, path : pathlib.Path, line: int, code_range: CodeRange, name: str, has_arg : int):
         assert path in self._sources
-        self._sources[path][line - 1].request_replace_call(code_range, name, arg_count)
+        self._sources[path][line - 1].request_replace_call(code_range, name, has_arg)
 
     def transform_sources(self):
         for path, source in self._sources.items():
@@ -347,11 +366,12 @@ class FunctionEntry:
         )
 
 class CallEntry:
-    def __init__(self, caller, callee, code_range):
+    def __init__(self, caller, callee, code_range, has_arg : bool):
         self.id = (code_range.file, code_range.start_line, code_range.start_column)
         self.caller = caller
         self.callee = callee
         self.code_range = code_range
+        self.has_arg = has_arg
 
     def __key(self):
         return self.id
@@ -420,7 +440,12 @@ class FunctionDatabase:
         caller = self._definitions.get(caller_id)
         callee = self._definitions.get(callee_id)
         if caller is not None and callee is not None:
-            call = CallEntry(caller, callee, code_range)
+            param_code_range : CodeRange = code_range.copy()
+            param_code_range.start_column = code_range.end_column
+            param_code_range.end_column = param_code_range.start_column + 2
+            text = self._ctx.get_string(param_code_range)
+            assert text[0] == '('
+            call = CallEntry(caller, callee, code_range, text != '()')
             if call in self._calls:
                 prev_call = self._calls[call]
                 assert call not in self._calls
@@ -514,7 +539,7 @@ def find_function(ctx: ParsingContext, config: Config, verbose=False):
             if cursor.mangled_name == '':
                 if verbose:
                     print('mangle error in {} ({})'.format(cursor.spelling, cursor.location))
-            else:
+            elif config.is_valid_func(cursor):
                 func = FunctionEntry(ctx, cursor)
                 assert func.is_valid(ctx)
                 funcs.append(func)
@@ -531,9 +556,12 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
     def function_declaration_visitor(func_cursor: clang.cindex.Cursor):
         def function_call_visitor(call_cursor: clang.cindex.Cursor):
             definition = call_cursor.get_definition()
-            if definition is not None and pathlib.Path(str(definition.location.file)) in config.imgui_sources and pathlib.Path(str(call_cursor.location.file)) in config.imgui_sources:
-                code_range = ctx.find_symbol(call_cursor.location.file, call_cursor.location.line, call_cursor.location.column, call_cursor.spelling)
+            if config.is_valid_func(call_cursor) and config.is_valid_func(definition):
+                code_range = ctx.find_symbol(call_cursor.location.file, call_cursor.location.line, call_cursor.location.column, call_cursor.spelling + '(')
                 if code_range is not None:
+                    code_range.end_column = code_range.end_column - 1 # Remove the '(')
+                    text = ctx.get_string(code_range)
+                    assert text == call_cursor.spelling
                     func_db.add_call(func_cursor.mangled_name, definition.mangled_name, code_range)
                 else:
                     print('WARNING: {} cannot be found at {}'.format(call_cursor.spelling, call_cursor.location))
@@ -554,13 +582,13 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
     print('--- ADD CONTEXT PARAMETER ---')
     for func in func_db.iter():
         if func.need_context_param:
-            ctx.request_replace_proto(func.code_range.file, func.code_range.start_line, func.code_range, func.name, func.param_count)
+            ctx.request_replace_proto(func.code_range.file, func.code_range.start_line, func.code_range, func.name, func.param_count > 0)
             if verbose:
                 print('Add `ImGuiContext* context` to {} at {}'.format(func.fq_name, func.code_range))
     print('--- FORWARD CONTEXT ---')
     for call in func_db.iter_calls():
         if call.callee.need_context_param:
-            ctx.request_replace_call(call.code_range.file, call.code_range.start_line, call.code_range, call.callee.name, call.callee.param_count)
+            ctx.request_replace_call(call.code_range.file, call.code_range.start_line, call.code_range, call.callee.name, call.has_arg)
             if verbose:
                 print('Forward `context` to {} at {}'.format(call.callee.fq_name, call.code_range))
 
@@ -602,9 +630,9 @@ def run_research(args, config):
 '''
 
     index = clang.cindex.Index.create()
-
-    subprocess.run(['git', 'clean', '-xdf'], cwd=config.root_folder)
-    subprocess.run(['git', 'checkout', '-f'], cwd=config.root_folder)
+    
+    if args.execute:
+        subprocess.run(['git', 'checkout', '-f', '*.cpp', '*.h'], cwd=config.root_folder)
 
     tu = index.parse(config.tmp, unsaved_files=[(config.tmp, tmp_content)], args=['-std=c++17'])
     ctx = ParsingContext(tu, config)

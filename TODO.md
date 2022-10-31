@@ -25,7 +25,9 @@
 - [X] Reset imgui repository before running script
 - [X] Fix: GImGui can be present several time in one function
 - [X] Fix: when applying modification enforce replace on the specific range
-- [ ] Blacklist context creation API
+- [X] Blacklist context creation API
+- [X] Fix: call expression is not necessarify the same as function parameter count because some parameter have default value
+- [ ] Deal with IMGUI_DEBUG_LOG*
 - [ ] How to deal with template function?
 - [ ] Handle function which already have an unused ctx parameter (like in imgui_tables.cpp)
 - [ ] Generate backward compatible API
