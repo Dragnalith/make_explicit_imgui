@@ -1,0 +1,2 @@
+- An ImGuiIO instance can only be used if it is the ImGuiIO set to the current context
+- ImGui::CreateContext, ImGui::DestroyContext, ImGui::GetCurrentContext, ImGui::SetCurrentContext should not be part of the explicit ImGui API

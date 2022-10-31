@@ -74,22 +74,22 @@ class Config:
         ])
 
 class SourceLine:
-    def __init__(self, line):
-        self.line = line
-        self.replace_context = False
-        self.transform_call = set()
-        self.transform_proto = None
+    def __init__(self, line: str):
+        self.line : str = line
+        self.replace_context = None
+        self.transform_call : list[str] = set()
+        self.transform_proto : str = None
         self.delete = False
 
-    def request_replace_context(self):
-        assert not self.replace_context
-        self.replace_context = True
+    def request_replace_context(self, implict_context : CodeRange):
+        assert self.replace_context is None
+        self.replace_context = implict_context
 
-    def request_replace_proto(self, name):
+    def request_replace_proto(self, name: str):
         assert self.transform_proto is None
         self.transform_proto = name
 
-    def request_replace_call(self, name):
+    def request_replace_call(self, name: str):
         self.transform_call.add(name)
 
     def transform(self):
@@ -114,7 +114,7 @@ class SourceLine:
 class ParsingContext:
     def __init__(self, tu: clang.cindex.TranslationUnit, config: Config):
         self.tu = tu
-        self._sources : dict[SourceLine] = dict()
+        self._sources : dict[pathlib.Path, SourceLine] = dict()
         self.config = config
         for source in config.imgui_sources:
             self._add_source(source)
@@ -147,15 +147,15 @@ class ParsingContext:
         else:
             assert False, "`get_string(...)` is not implemented for multiline source range yet"
 
-    def request_replace_context(self, path, line):
-        assert path in self._sources
-        self._sources[path][line - 1].request_replace_context()
+    def request_replace_context(self, implicit_context : CodeRange):
+        assert implicit_context.file in self._sources
+        self._sources[implicit_context.file][implicit_context.start_line - 1].request_replace_context(implicit_context)
 
-    def request_replace_proto(self, path, line, name):
+    def request_replace_proto(self, path : pathlib.Path, line: int, name: str):
         assert path in self._sources
         self._sources[path][line - 1].request_replace_proto(name)
 
-    def request_replace_call(self, path, line, name):
+    def request_replace_call(self, path : pathlib.Path, line: int, name: str):
         assert path in self._sources
         self._sources[path][line - 1].request_replace_call(name)
 
@@ -243,10 +243,10 @@ class FunctionEntry:
 
         self.visited = False
         self.need_context_param = False
-        self.implicit_context : CodeRange = None
+        self.implicit_contexts : list[CodeRange] = []
         for child in iterate_recursive(cursor):
             if child.spelling == 'GImGui':
-                self.implicit_context = CodeRange.from_source_range(child.extent)
+                self.implicit_contexts.append(CodeRange.from_source_range(child.extent))
                 break
 
         assert self.name is not None
@@ -365,7 +365,7 @@ class FunctionDatabase:
 
     def compute_context_need(self):
         for id, func in self._definitions.items():
-            if func.implicit_context is not None:
+            if len(func.implicit_contexts) > 0:
                 self._set_need_context_recursive(func)
 
     def _set_need_context_recursive(self, callee):
@@ -487,10 +487,10 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
 
     print('--- REMOVE GLOBAL CONTEXT ---')
     for func in func_db.iter_definitions():
-        if func.implicit_context is not None:
-            ctx.request_replace_context(func.implicit_context.file, func.implicit_context.start_line)
+        for implicit_context in func.implicit_contexts:
+            ctx.request_replace_context(implicit_context)
             if verbose:
-                print('Replace `GImGui` with `context` in {} at {}'.format(func.fq_name, func.implicit_context))
+                print('Replace `GImGui` with `context` in {} at {}'.format(func.fq_name, implicit_context))
     print('--- ADD CONTEXT PARAMETER ---')
     for func in func_db.iter():
         if func.need_context_param:

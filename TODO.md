@@ -22,9 +22,9 @@
 - [X] Build call graph and find which function depends on the implicit context
 - [X] Find all call location
 - [X] Apply modification
-- [ ] Reset imgui repository before running script
+- [X] Reset imgui repository before running script
+- [X] Fix: GImGui can be present several time in one function
 - [ ] Fix: when applying modification enforce replace on the specific range
-- [ ] Fix: GImGui can be present several time in one function
 - [ ] Blacklist context creation API
 - [ ] How to deal with template function?
 - [ ] Handle function which already have an unused ctx parameter (like in imgui_tables.cpp)
