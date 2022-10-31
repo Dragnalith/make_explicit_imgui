@@ -27,7 +27,7 @@
 - [X] Fix: when applying modification enforce replace on the specific range
 - [X] Blacklist context creation API
 - [X] Fix: call expression is not necessarify the same as function parameter count because some parameter have default value
-- [ ] Deal with IMGUI_DEBUG_LOG*
+- [X] Deal with IMGUI_DEBUG_LOG*
 - [ ] How to deal with template function?
 - [ ] Handle function which already have an unused ctx parameter (like in imgui_tables.cpp)
 - [ ] Generate backward compatible API

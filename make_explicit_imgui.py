@@ -1,5 +1,6 @@
 import subprocess
 from re import U
+from unicodedata import name
 import clang.cindex
 from clang.cindex import CursorKind, TypeKind
 import argparse
@@ -31,6 +32,16 @@ class CodeRange:
     def copy(self):
         return CodeRange(self.file, self.start_line, self.start_column, self.end_line, self.end_column)
 
+    def __key(self):
+        return (self.file, self.start_line, self.start_column)
+
+    def __hash__(self):
+        return hash(self.__key())
+
+    def __eq__(self, other):
+        if isinstance(other, FunctionEntry):
+            return self.__key() == other.__key()
+        return NotImplemented
     def __str__(self):
         assert self.start_line == self.end_line
         return '{}:{}:{}-{}'.format(self.file, self.start_line, self.start_column, self.end_column)
@@ -172,6 +183,16 @@ class ParsingContext:
         for source in config.imgui_sources:
             self._add_source(source)
 
+        self._log_symbols = [
+            'IMGUI_DEBUG_LOG',
+            'IMGUI_DEBUG_LOG_ACTIVEID',
+            'IMGUI_DEBUG_LOG_FOCUS',
+            'IMGUI_DEBUG_LOG_POPUP',
+            'IMGUI_DEBUG_LOG_NAV',
+            'IMGUI_DEBUG_LOG_CLIPPER',
+            'IMGUI_DEBUG_LOG_IO'
+        ]
+
     def _add_source(self, path):
         if not isinstance(path, pathlib.Path):
             path = pathlib.Path(path)
@@ -183,7 +204,7 @@ class ParsingContext:
 
     def get_line(self, path, line):
         if isinstance(path, str):
-            path = pathlib.Path(path)
+            path = pathlib.Path(str(path))
 
         assert path in self._sources
         return self._sources[path][line - 1].line
@@ -202,6 +223,15 @@ class ParsingContext:
             return CodeRange(path, line_num, offset, line_num, offset + lenght)
         else:
             return None
+
+    def find_log_symbol(self, location: clang.cindex.SourceLocation) -> CodeRange:
+        for symbol in self._log_symbols:
+            code_range = self.find_symbol(location.file, location.line, location.column, symbol + '(')
+            if code_range is not None:
+                code_range.end_column = code_range.end_column - 1
+                return symbol, code_range
+
+        return None
 
     def get_string(self, code_range: CodeRange):
         source = self._sources[code_range.file]
@@ -394,7 +424,8 @@ class FunctionDatabase:
         self._definitions : dict[FunctionEntry] = dict()
         self._caller_to_call : dict[FunctionEntry, set(CallEntry)] = dict()
         self._callee_to_call : dict[FunctionEntry, set(CallEntry)] = dict()
-        self._calls : dict[CallEntry, CallEntry] = dict();
+        self._calls : dict[CallEntry, CallEntry] = dict()
+        self._log_call : set[(str, CodeRange)] = set()
         for f in funcs:
             if f.is_definition:
                 assert f.id not in self._definitions
@@ -428,6 +459,10 @@ class FunctionDatabase:
         for call in self._calls.values():
             yield call
 
+    def iter_log_calls(self) -> Iterable[CodeRange]:
+        for call in self._log_call:
+            yield call
+
     def iter(self) -> Iterable[FunctionEntry]:
         for id in self._definitions.keys():
             decl = self._declarations[id]
@@ -453,6 +488,10 @@ class FunctionDatabase:
             self._calls[call] = call
             self._caller_to_call[caller].add(call)
             self._callee_to_call[callee].add(call)
+
+    def add_log_call(self, name : str, code_range : CodeRange):
+        assert code_range not in self._log_call
+        self._log_call.add((name, code_range))
 
     def compute_context_need(self):
         for id, func in self._definitions.items():
@@ -563,6 +602,10 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
                     text = ctx.get_string(code_range)
                     assert text == call_cursor.spelling
                     func_db.add_call(func_cursor.mangled_name, definition.mangled_name, code_range)
+                elif call_cursor.spelling == 'DebugLog':
+                    name, code_range = ctx.find_log_symbol(call_cursor.location)
+                    assert name is not None and code_range is not None
+                    func_db.add_log_call(name, code_range)
                 else:
                     print('WARNING: {} cannot be found at {}'.format(call_cursor.spelling, call_cursor.location))
 
@@ -591,6 +634,12 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
             ctx.request_replace_call(call.code_range.file, call.code_range.start_line, call.code_range, call.callee.name, call.has_arg)
             if verbose:
                 print('Forward `context` to {} at {}'.format(call.callee.fq_name, call.code_range))
+    
+    print('--- FORWARD CONTEXT (LOG CALL) ---')
+    for name, code_range in func_db.iter_log_calls():
+        ctx.request_replace_call(code_range.file, code_range.start_line, code_range, name, True)
+        if verbose:
+            print('Forward `context` to {} at {}'.format(call.callee.fq_name, call.code_range))
 
 def make_signature(params: list[FunctionParameter], with_default=True) -> str:
     """
