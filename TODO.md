@@ -28,7 +28,8 @@
 - [X] Blacklist context creation API
 - [X] Fix: call expression is not necessarify the same as function parameter count because some parameter have default value
 - [X] Deal with IMGUI_DEBUG_LOG*
-- [ ] Do not ImGuiContext* ctx if it already exist
+- [X] Do not add ImGuiContext* ctx if it already exist
 - [ ] Deal with Template function in imgui_widgets.cpp
+- [ ] Prepare imgui repository
 - [ ] Handle function which already have an unused ctx parameter (like in imgui_tables.cpp)
 - [ ] Generate backward compatible API

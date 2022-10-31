@@ -120,13 +120,17 @@ class SourceLine:
     def __init__(self, line: str):
         self.line : str = line
         self.replace_context : TransformStrRequest = None
-        self.transform_call : list[TransformStrRequest] = set()
+        self.transform_call : list[TransformStrRequest] = list()
         self.transform_proto : TransformStrRequest = None
+        self.other_request : list[TransformStrRequest]  = list()
         self.delete = False
 
     def request_replace_context(self, implicit_context : CodeRange):
         assert self.replace_context is None
         self.replace_context = TransformStrRequest(implicit_context.start_column - 1, implicit_context.end_column - 1, 'GImGui', 'ctx')
+
+    def request_replace(self, req : TransformStrRequest):
+        self.other_request.append(req)
 
     def request_replace_proto(self, code_range: CodeRange, name: str, has_arg: bool):
         assert self.transform_proto is None
@@ -136,7 +140,7 @@ class SourceLine:
     def request_replace_call(self, code_range: CodeRange, name: str, has_arg):
         arg = 'ctx' + (', ' if has_arg > 0 else '')
         request = TransformStrRequest(code_range.start_column - 1, code_range.end_column, name + '(', name + '(' + arg)
-        self.transform_call.add(request)
+        self.transform_call.append(request)
 
     def transform(self):
         requests : list[TransformStrRequest] = list()
@@ -146,8 +150,9 @@ class SourceLine:
         if self.transform_proto is not None:
             requests.append(self.transform_proto)
 
-        if len(self.transform_call) > 0:
-            requests += self.transform_call
+        requests += self.transform_call
+        requests += self.other_request
+
         requests.sort(key = lambda x: x.start)
 
         new_line = str()
@@ -251,6 +256,9 @@ class ParsingContext:
         assert implicit_context.file in self._sources
         self._sources[implicit_context.file][implicit_context.start_line - 1].request_replace_context(implicit_context)
 
+    def request_replace(self, path : pathlib.Path, line: int, request : TransformStrRequest):
+        self._sources[path][line - 1].request_replace(request)
+
     def request_replace_proto(self, path : pathlib.Path, line: int, code_range: CodeRange, name: str, has_arg : bool):
         assert path in self._sources
         self._sources[path][line - 1].request_replace_proto(code_range, name, has_arg)
@@ -285,9 +293,10 @@ def format_type_name(type_name):
     return result
 
 class FunctionParameter:
-    def __init__(self, name : str, type : str, declaration : str = None):
+    def __init__(self, name : str, type : str, declaration : str, code_range : CodeRange):
         self.name : str = name
         self.type : str = format_type_name(type)
+        self.code_range = code_range
         
         self.declaration : str = declaration
         if self.declaration is None:
@@ -319,10 +328,16 @@ class FunctionEntry:
                     fmtlib = child.spelling
 
         arg : clang.cindex.Cursor
+
+        self.imgui_context_arg : FunctionParameter = None
         for arg in cursor.get_arguments():
-            declaration = ctx.get_string(CodeRange.from_source_range(arg.extent))
+            arg_code_range = CodeRange.from_source_range(arg.extent)
+            declaration = ctx.get_string(arg_code_range)
             assert declaration is not None, "Cannot parse declaration of this arg: {} '{}'".format(arg.kind, arg.spelling)
-            params.append(FunctionParameter(arg.spelling, arg.type.spelling, declaration))
+            function_param = FunctionParameter(arg.spelling, arg.type.spelling, declaration, arg_code_range)
+            if 'ImGuiContext' in declaration:
+                self.imgui_context_arg = function_param
+            params.append(function_param)
 
         self.name : str = cursor.spelling
         self.id : str = cursor.mangled_name
@@ -627,9 +642,15 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
     print('--- ADD CONTEXT PARAMETER ---')
     for func in func_db.iter():
         if func.need_context_param:
-            ctx.request_replace_proto(func.code_range.file, func.code_range.start_line, func.code_range, func.name, func.param_count > 0)
-            if verbose:
-                print('Add `ImGuiContext* context` to {} at {}'.format(func.fq_name, func.code_range))
+            if func.imgui_context_arg is None:
+                ctx.request_replace_proto(func.code_range.file, func.code_range.start_line, func.code_range, func.name, func.param_count > 0)
+                if verbose:
+                    print('Add `ImGuiContext* context` to {} at {}'.format(func.fq_name, func.code_range))
+            elif 'ctx' not in func.imgui_context_arg.declaration:
+                arg = func.imgui_context_arg
+                req = TransformStrRequest(arg.code_range.start_column - 1, arg.code_range.end_column - 1, arg.declaration, 'ImGuiContext* ctx')
+                ctx.request_replace(arg.code_range.file, arg.code_range.start_line, req)
+
     print('--- FORWARD CONTEXT ---')
     for call in func_db.iter_calls():
         if call.callee.need_context_param:
