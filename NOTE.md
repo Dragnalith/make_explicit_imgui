@@ -11,3 +11,5 @@
     - ImGuiListClipper class wants to depend on the context
     - GetClipboardTextFn, SetClipboardTextFn function pointer type need a context
     - DebugLogV
+    - imstb_textedit also depend on context
+    - MyCallback need ImGuiContext* (imgui_demo.cpp)
