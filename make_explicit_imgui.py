@@ -7,7 +7,7 @@ import argparse
 import pathlib
 from typing import Iterable
 
-WHITELIST = set([
+BLACKLIST = set([
     'CreateContext',
     'DestroyContext',
     'GetCurrentContext',
@@ -15,6 +15,17 @@ WHITELIST = set([
     'AddContextHook',
     'RemoveContextHook',
     'CallContextHooks'
+    'MemAlloc',
+    'MemFree',
+])
+
+SPECIAL_TEMPLATE_FUNC = set([
+    'ScaleRatioFromValueT',
+    'ScaleValueFromRatioT',
+    'DragBehaviorT',
+    'SliderBehaviorT',
+    'RoundScalarWithFormatT',
+    'CheckboxFlagsT',
 ])
 
 class CodeRange:
@@ -102,7 +113,8 @@ class Config:
     def is_valid_func(self, cursor):
         return cursor is not None \
             and pathlib.Path(str(cursor.location.file)) in self.imgui_sources \
-            and cursor.spelling not in self.blacklist
+            and cursor.spelling not in self.blacklist \
+            and get_id(cursor) is not None
 
 
 class TransformStrRequest:
@@ -311,7 +323,7 @@ class FunctionParameter:
 
 class FunctionEntry:
     def __init__(self, ctx: ParsingContext, cursor: clang.cindex.Cursor):
-        assert cursor.kind in [CursorKind.FUNCTION_DECL, CursorKind.CXX_METHOD]
+        assert cursor.kind in [CursorKind.FUNCTION_DECL, CursorKind.CXX_METHOD, CursorKind.FUNCTION_TEMPLATE]
 
         params : list[FunctionParameter] = []
         is_api = False
@@ -339,14 +351,15 @@ class FunctionEntry:
                 self.imgui_context_arg = function_param
             params.append(function_param)
 
+        self.kind = cursor.kind
         self.name : str = cursor.spelling
-        self.id : str = cursor.mangled_name
+        self.fq_name : str = get_fully_qualified_name(cursor)
+        self.id : str = cursor.mangled_name if cursor.kind != CursorKind.FUNCTION_TEMPLATE else self.fq_name
         assert self.id is not None and self.id != ''
         self.code_range : CodeRange = CodeRange.from_source_location(cursor.location, len(cursor.spelling))
-        self.fq_name : str = get_fully_qualified_name(cursor)
         self.return_type : str = format_type_name(cursor.type.get_result().spelling)
         self.params : list[FunctionParameter] = params
-        self.param_count = len(self.params)
+        self.param_count = len(list(cursor.type.argument_types()))
         self.fmtargs = int(fmtargs[11]) if fmtargs is not None else 0
         self.fmtlist = int(fmtlist[11]) if fmtlist is not None else 0
         self.is_api=is_api
@@ -565,13 +578,21 @@ def iterate_recursive(parent: clang.cindex.Cursor) -> Iterable[clang.cindex.Curs
         for child in iterate_recursive(cursor):
             yield child
 
-def get_fully_qualified_name(cursor: clang.cindex.Cursor):
+def get_fully_qualified_name(cursor: clang.cindex.Cursor) -> str:
     res = cursor.spelling
     cursor = cursor.semantic_parent
     while cursor.kind != CursorKind.TRANSLATION_UNIT:
         res = cursor.spelling + '::' + res
         cursor = cursor.semantic_parent
     return res
+
+def get_id(cursor: clang.cindex.Cursor) -> str:
+    if cursor.spelling in SPECIAL_TEMPLATE_FUNC:
+        return get_fully_qualified_name(cursor)
+    elif cursor.mangled_name is not None and cursor.mangled_name != '':
+        return cursor.mangled_name
+    else:
+        return None
 
 def visit_cursor(parent: clang.cindex.Cursor, requested_kinds: CursorKind , callback):
     cursor : clang.cindex.Cursor
@@ -592,7 +613,7 @@ def find_function(ctx: ParsingContext, config: Config, verbose=False):
     funcs : list[FunctionEntry] = []
     def add_function_visitor(cursor: clang.cindex.Cursor):
         if pathlib.Path(str(cursor.location.file)) in ctx.config.imgui_sources:
-            if cursor.mangled_name == '':
+            if cursor.mangled_name == '' and not cursor.kind == CursorKind.FUNCTION_TEMPLATE:
                 if verbose:
                     print('mangle error in {} ({})'.format(cursor.spelling, cursor.location))
             elif config.is_valid_func(cursor):
@@ -602,7 +623,7 @@ def find_function(ctx: ParsingContext, config: Config, verbose=False):
 
         return False
 
-    visit_cursor(ctx.tu.cursor, [CursorKind.FUNCTION_DECL, CursorKind.CXX_METHOD], add_function_visitor)
+    visit_cursor(ctx.tu.cursor, [CursorKind.FUNCTION_DECL, CursorKind.CXX_METHOD, CursorKind.FUNCTION_TEMPLATE], add_function_visitor)
 
     return funcs
 
@@ -612,13 +633,13 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
     def function_declaration_visitor(func_cursor: clang.cindex.Cursor):
         def function_call_visitor(call_cursor: clang.cindex.Cursor):
             definition = call_cursor.get_definition()
-            if config.is_valid_func(call_cursor) and config.is_valid_func(definition):
+            if config.is_valid_func(func_cursor) and config.is_valid_func(definition):
                 code_range = ctx.find_symbol(call_cursor.location.file, call_cursor.location.line, call_cursor.location.column, call_cursor.spelling + '(')
                 if code_range is not None:
                     code_range.end_column = code_range.end_column - 1 # Remove the '(')
                     text = ctx.get_string(code_range)
                     assert text == call_cursor.spelling
-                    func_db.add_call(func_cursor.mangled_name, definition.mangled_name, code_range)
+                    func_db.add_call(get_id(func_cursor), get_id(definition), code_range)
                 elif call_cursor.spelling == 'DebugLog':
                     name, code_range = ctx.find_log_symbol(call_cursor.location)
                     assert name is not None and code_range is not None
@@ -627,9 +648,12 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
                     print('WARNING: {} cannot be found at {}'.format(call_cursor.spelling, call_cursor.location))
 
             return True
+        if func_cursor.spelling == 'CheckboxFlags' and func_cursor.location.line == 1189:
+            rprint_cursor(func_cursor)
+            i = True
         visit_cursor(func_cursor, [CursorKind.CALL_EXPR], function_call_visitor)
 
-    visit_cursor(ctx.tu.cursor, [CursorKind.FUNCTION_DECL, CursorKind.CXX_METHOD], function_declaration_visitor)
+    visit_cursor(ctx.tu.cursor, [CursorKind.FUNCTION_DECL, CursorKind.CXX_METHOD, CursorKind.FUNCTION_TEMPLATE], function_declaration_visitor)
 
     func_db.compute_context_need()
 
@@ -643,7 +667,8 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
     for func in func_db.iter():
         if func.need_context_param:
             if func.imgui_context_arg is None:
-                ctx.request_replace_proto(func.code_range.file, func.code_range.start_line, func.code_range, func.name, func.param_count > 0)
+                has_arg = func.param_count > 0
+                ctx.request_replace_proto(func.code_range.file, func.code_range.start_line, func.code_range, func.name, has_arg)
                 if verbose:
                     print('Add `ImGuiContext* context` to {} at {}'.format(func.fq_name, func.code_range))
             elif 'ctx' not in func.imgui_context_arg.declaration:
