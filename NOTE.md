@@ -45,4 +45,16 @@
         -> ImGuiWindow::GetID
     ImGuiInputTextCallbackData
         -> ImGuiInputTextCallbackData::InsertChars
+- 2022-11-01 Design Choice:
+  - Physical design of file
+  - Namespace ImGuiEx
+  - Memory allocator explicit/implicit
+  - C function vs class
+  - ListClipper construction
+  - atomic for MetricsActiveAllocation
+
+- 2022-11-01 Problem:
+  - Multithread
+  - Link of independent library without interop
+
     
