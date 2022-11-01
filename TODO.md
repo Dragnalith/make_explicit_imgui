@@ -32,5 +32,18 @@
 - [X] Deal with Template function in imgui_widgets.cpp
 - [X] Rename ImGui:: to ImGuiEx:: and namespace ImGui to ImGuiEx
 - [ ] Prepare imgui repository, make class not depend on ImGui but take a context as constructor argument
+    - [X] Classes store a reference to parent context when required: 
+       - [X] ImGuiIO, 
+       - [X] ImGuiListClipper
+       - [X] ImGuiStackSizes
+       - [X] ImGuiWindow
+       - [X] ImGuiInputTextCallbackData
+    - [X] imstb_textedit does not depend on global context
+       - imstb_textedit takes ConfigMaxOSXBehaviors as argument
+       - imstb_textedit takes Font as argument
+    - [ ] MemAlloc and MemFree depend on GImGui context from tracking memory allocation
+    - [ ] ImGuiStyle() constructor use ctx to set default style
+    - [ ] GetClipboardTextFn, SetClipboardTextFn function pointer type need a context
+- [ ] Instead of adding imguiex.h and imguiex.cpp and the new api inplace
 - [ ] Handle function which already have an unused ctx parameter (like in imgui_tables.cpp)
 - [ ] Generate backward compatible API

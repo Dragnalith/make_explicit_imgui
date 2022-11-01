@@ -25,16 +25,16 @@
         -> ImGuiIO::AddMouseButtonEvent   
         -> ImGuiIO::AddMouseWheelEvent    
         -> ImGuiIO::AddFocusEvent
-        ImGuiListClipper
+    ImGuiListClipper
         -> ImGuiListClipper::Begin
         -> ImGuiListClipper::End
         -> ImGuiListClipper::Step
-        ImGuiStackSizes
+    ImGuiStackSizes
         -> ImGuiStackSizes::SetToCurrentState
         -> ImGuiStackSizes::CompareWithCurrentState
-        ImGuiInputTextState
+    ImGuiInputTextState
         -> ImGuiInputTextState::OnKeyPressed
-        ImGuiWindow
+    ImGuiWindow
         -> ImGuiWindow::CalcFontSize
         -> ImGuiWindow::TitleBarHeight
         -> ImGuiWindow::TitleBarRect
@@ -43,5 +43,6 @@
         -> ImGuiWindow::GetID
         -> ImGuiWindow::GetID
         -> ImGuiWindow::GetID
-        ImGuiInputTextCallbackData
+    ImGuiInputTextCallbackData
         -> ImGuiInputTextCallbackData::InsertChars
+    

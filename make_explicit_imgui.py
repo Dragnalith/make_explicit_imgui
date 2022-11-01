@@ -17,6 +17,7 @@ BLACKLIST = set([
     'CallContextHooks'
     'MemAlloc',
     'MemFree',
+    'CreateListClipper'
 ])
 
 SPECIAL_TEMPLATE_FUNC = set([
