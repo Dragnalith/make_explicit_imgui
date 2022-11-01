@@ -87,7 +87,7 @@ class Config:
         self.imgui_draw = root_folder / 'imgui_draw.cpp'
         self.imgui_demo = root_folder / 'imgui_demo.cpp'
         self.imguiex_h = root_folder / 'imguiex.h'
-        self.imguiex_cpp = root_folder / 'imguiex.cpp'
+        self.imgui_implicit = root_folder / 'imgui_implicit.cpp'
         self.tmp = root_folder / 'tmp.cpp'
         self.test_cpp = pathlib.Path(__file__).parent / 'test/test.cpp'
         self.imgui_sources = set([
@@ -101,20 +101,10 @@ class Config:
             self.imstb_textedit
         ])
 
-        # Those API need special handling
-        self.blacklist = [
-            'CreateContext',
-            'DestroyContext',
-            'GetCurrentContext',
-            'SetCurrentContext',
-            'MemAlloc',
-            'MemFree',
-        ]
-
     def is_valid_func(self, cursor):
         return cursor is not None \
             and pathlib.Path(str(cursor.location.file)) in self.imgui_sources \
-            and cursor.spelling not in self.blacklist \
+            and cursor.spelling not in BLACKLIST \
             and get_id(cursor) is not None
 
 
@@ -816,10 +806,9 @@ def generate(args, config: Config):
 
         print('--- GENERATE imguiex.h, imguiex.cpp ---')
 
-        with open(config.imguiex_h, 'w', encoding='utf-8') as file:
+        with open(config.imgui_h, 'a', encoding='utf-8') as file:
             context_param : FunctionParameter = FunctionParameter('context', 'ImGuiContext*', None, None)
-            file.write('#include "imgui.h"\n')
-            file.write('#include "imgui_internal.h"\n\n')
+            file.write('\n')
             file.write('namespace ImGui\n')
             file.write('{\n')
             for api in apis:
@@ -842,7 +831,7 @@ def generate(args, config: Config):
                 ))
             file.write('}\n')
             
-        with open(config.imguiex_cpp, 'w', encoding='utf-8') as file:
+        with open(config.imgui_implicit, 'w', encoding='utf-8') as file:
             context_arg : FunctionParameter = FunctionParameter('GImGui', 'ImGuiContext*', None, None)
             file.write('#include "imgui.h"\n')
             file.write('#include "imguiex.h"\n\n')

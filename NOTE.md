@@ -52,6 +52,7 @@
   - C function vs class
   - ListClipper construction
   - atomic for MetricsActiveAllocation
+  - ImGuiTextFilter could depend on draw or not
 
 - 2022-11-01 Problem:
   - Multithread

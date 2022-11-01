@@ -31,7 +31,7 @@
 - [X] Do not add ImGuiContext* ctx if it already exist
 - [X] Deal with Template function in imgui_widgets.cpp
 - [X] Rename ImGui:: to ImGuiEx:: and namespace ImGui to ImGuiEx
-- [ ] Prepare imgui repository, make class not depend on ImGui but take a context as constructor argument
+- [X] Prepare imgui repository, make class not depend on ImGui but take a context as constructor argument
     - [X] Classes store a reference to parent context when required: 
        - [X] ImGuiIO, 
        - [X] ImGuiListClipper
@@ -44,6 +44,9 @@
     - [X] MemAlloc and MemFree depend on GImGui context from tracking memory allocation
     - [X] ImGuiStyle() constructor use ctx to set default style
     - [X] GetClipboardTextFn, SetClipboardTextFn function pointer type need a context
-- [ ] Instead of adding imguiex.h and imguiex.cpp and the new api inplace
-- [ ] Handle function which already have an unused ctx parameter (like in imgui_tables.cpp)
-- [ ] Generate backward compatible API
+- [X] Instead of adding imguiex.h and imguiex.cpp and the new api inplace
+- [X] Handle function which already have an unused ctx parameter (like in imgui_tables.cpp)
+- [X] Generate backward compatible API
+- [ ] Fix ImGuiInputTextState, still depends on context
+- [ ] Fix ImGuiTextFilter which depends on context
+- [ ] Improve script so it use context of classes when possible (ImGuiWindow, ImGuiIO, ImGuiListClipper)

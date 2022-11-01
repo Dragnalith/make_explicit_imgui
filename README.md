@@ -6,6 +6,4 @@ pip install libclang
 python make_explicit_imgui.py <path-to-imgui-repository>
 ```
 - Apply the following manual steps:
-  - nullptr to ImGuiStyle constructor
-  - nullptr to ImGuiListClipper destructor and method
-  - Fix GetClipboardTextFn signature and SetPlatformImeDataFn
+  - Update IM_FMTARGS and IM_FMTLIST
