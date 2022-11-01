@@ -749,7 +749,7 @@ def replace_in_file(path, pairs):
     with open(path, 'w') as file:
         file.write(filedata)
 
-def run_research(args, config: Config):
+def generate(args, config: Config):
     tmp_content = \
 '''
 #define IM_FMTARGS(x) __attribute__((annotate("IM_FMTARGS(" #x ")")))
@@ -877,105 +877,13 @@ def dump_test_ast(args, config):
             file.write(x + '\n')
         rprint_cursor(tu.cursor, write_func=write_func)
 
-def generate(args, config):
-    tmp_content = \
-'''
-#define IM_FMTARGS(x) __attribute__((annotate("IM_FMTARGS(" #x ")")))
-#define IM_FMTLIST(x) __attribute__((annotate("IM_FMTLIST(" #x ")")))
-#define IMGUI_API __attribute__((annotate("imgui_api")))
-#include "imgui.h"\n
-#include "imgui_internal.h"\n
-'''
-
-    index = clang.cindex.Index.create()
-
-    replace_in_file(config.imgui_h, [
-        ('#define IM_FMTARGS', '//TMP#define IM_FMTARGS'),
-        ('#define IM_FMTLIST', '//TMP#define IM_FMTLIST'),
-    ])
-
-    tu = index.parse(config.tmp, unsaved_files=[(config.tmp, tmp_content)], args=['-std=c++17'])
-    ctx = ParsingContext(tu, config)
-
-    replace_in_file(config.imgui_h, [
-        ('//TMP#define IM_FMTARGS', '#define IM_FMTARGS'),
-        ('//TMP#define IM_FMTLIST', '#define IM_FMTLIST'),
-    ])
-
-    if len(tu.diagnostics) > 0:
-        for d in tu.diagnostics:
-            print(d)
-
-    apis = parse(ctx, config, verbose=args.verbose)
-    if args.print:
-        for api in apis:
-            print(api)
-
-    if args.execute:
-        with open(config.imguiex_h, 'w', encoding='utf-8') as file:
-            context_param : FunctionParameter = FunctionParameter('context', 'ImGuiContext*')
-            file.write('#include "imgui.h"\n')
-            file.write('#include "imgui_internal.h"\n\n')
-            file.write('namespace ImGuiEx\n')
-            file.write('{\n')
-            for api in apis:
-                if api.name in WHITELIST:
-                    params = api.params
-                    arg_offset = 0
-                else:
-                    params = [context_param] + api.params
-                    arg_offset = 1
-                suffix = ''
-                if api.fmtlist > 0:
-                    suffix = ' IM_FMTLIST({})'.format(api.fmtlist + arg_offset)
-                if api.fmtargs > 0:
-                    suffix = ' IM_FMTARGS({})'.format(api.fmtargs + arg_offset)
-                    params = params + [FunctionParameter('...', '', '...')]
-                file.write('    IMGUI_API {type} {name}({signature}){suffix};\n'.format(
-                    type=api.return_type, 
-                    name=api.name, 
-                    signature=make_signature(params),
-                    suffix=suffix
-                ))
-            file.write('}\n')
-            
-        with open(config.imguiex_cpp, 'w', encoding='utf-8') as file:
-            context_arg : FunctionParameter = FunctionParameter('GImGui', 'ImGuiContext*')
-            file.write('#include "imgui.h"\n')
-            file.write('#include "imguiex.h"\n\n')
-            file.write('ImGuiContext*   GImGui = NULL;\n\n')
-            file.write('namespace ImGui\n')
-            file.write('{\n')
-            for api in apis:
-                params = api.params
-                name = api.name
-                if api.name in WHITELIST:
-                    args = api.params
-                else:
-                    args = [context_arg] + api.params
-                if api.fmtargs > 0:
-                    params = params + [FunctionParameter('...', '', '...')]
-                    args = args + [FunctionParameter('args', 'va_list')]
-                    name = name + 'V'
-                file.write('    {type} {name}({signature}) {{\n'.format(type=api.return_type, name=api.name, signature=make_signature(params, with_default=False)))
-                if (api.fmtargs) > 0:
-                    file.write('        va_list args;\n');
-                    file.write('        va_start(args, fmt);\n');
-                file.write('        ImGuiEx::{name}({args});\n'.format(name=name,args=make_args(args)))
-                if (api.fmtargs) > 0:
-                    file.write('        va_end(args);\n');
-                file.write('    }\n')
-            file.write('}\n')
-
 def main():
     SourceLine.test()
 
     parser = argparse.ArgumentParser()
     parser.add_argument('repository_path', action='store', type=str, help="path to the root of dear imgui repository")
     parser.add_argument('-v', '--verbose', action='store_true', default=False)
-    parser.add_argument('-p', '--print', action='store_true', default=False)
     parser.add_argument('-x', '--execute', action='store_true', default=False, help="Actually do the imgui repository conversion")
-    parser.add_argument('-r', '--research', action='store_true', default=False, help="Run research code made to explore how to parse imgui with libclang")
     parser.add_argument('-d', '--dump-test-ast', action='store_true', default=False, help="Dump AST of manually written code for experimentation purpose")
     args = parser.parse_args()
 
@@ -983,9 +891,7 @@ def main():
 
     config = Config(root_folder)
 
-    if args.research:
-        run_research(args, config)
-    elif args.dump_test_ast:
+    if args.dump_test_ast:
         dump_test_ast(args, config)
     else:
         generate(args, config)
