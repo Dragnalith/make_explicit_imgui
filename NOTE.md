@@ -14,3 +14,34 @@
     - imstb_textedit also depend on context
     - MyCallback need ImGuiContext* (imgui_demo.cpp)
     - ImGuiInputTextCallbackData need context
+- 2022-11-01 Class and methods depending on GImGui:
+    ImGuiIO
+        -> ImGuiIO::AddInputCharacter     
+        -> ImGuiIO::AddInputCharacterUTF16
+        -> ImGuiIO::AddInputCharactersUTF8
+        -> ImGuiIO::AddKeyAnalogEvent     
+        -> ImGuiIO::AddKeyEvent
+        -> ImGuiIO::AddMousePosEvent      
+        -> ImGuiIO::AddMouseButtonEvent   
+        -> ImGuiIO::AddMouseWheelEvent    
+        -> ImGuiIO::AddFocusEvent
+        ImGuiListClipper
+        -> ImGuiListClipper::Begin
+        -> ImGuiListClipper::End
+        -> ImGuiListClipper::Step
+        ImGuiStackSizes
+        -> ImGuiStackSizes::SetToCurrentState
+        -> ImGuiStackSizes::CompareWithCurrentState
+        ImGuiInputTextState
+        -> ImGuiInputTextState::OnKeyPressed
+        ImGuiWindow
+        -> ImGuiWindow::CalcFontSize
+        -> ImGuiWindow::TitleBarHeight
+        -> ImGuiWindow::TitleBarRect
+        -> ImGuiWindow::MenuBarHeight
+        -> ImGuiWindow::MenuBarRect
+        -> ImGuiWindow::GetID
+        -> ImGuiWindow::GetID
+        -> ImGuiWindow::GetID
+        ImGuiInputTextCallbackData
+        -> ImGuiInputTextCallbackData::InsertChars

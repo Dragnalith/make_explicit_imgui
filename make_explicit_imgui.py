@@ -789,10 +789,20 @@ def generate(args, config: Config):
     func_db = FunctionDatabase(ctx, funcs)
     find_function_call(ctx, config, func_db, verbose=args.verbose)
 
+    apis = [f for f in func_db.iter() if f.is_api and f.code_range.file == config.imgui_h and not f.is_method]
+
+    methods = [f for f in func_db.iter_definitions() if f.need_context_param and f.is_method]
+    methods.sort(key= lambda f: f.class_type)
+    classes = set([f.class_type for f in methods])
+
+    print('--- CLASS depending on GImGui ---')
+    for c in classes:
+        print(c)
+        for m in [m for m in methods if m.class_type == c]:
+            print(' -> ' + m.fq_name)
+
     if args.execute:
         ctx.transform_sources()
-
-        apis = [f for f in func_db.iter() if f.is_api and f.code_range.file == config.imgui_h and not f.is_method]
 
 
         print('--- MODIFY NAMESPACE ---')
