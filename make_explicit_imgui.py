@@ -141,8 +141,8 @@ class SourceLine:
         arg = 'ImGuiContext* ctx' + (', ' if has_arg > 0 else '')
         self.transform_proto = TransformStrRequest(code_range.start_column - 1, code_range.end_column , name + '(', name + '(' + arg)
 
-    def request_replace_call(self, code_range: CodeRange, name: str, has_arg):
-        arg = 'ctx' + (', ' if has_arg > 0 else '')
+    def request_replace_call(self, var_name: str, code_range: CodeRange, name: str, has_arg):
+        arg = var_name + (', ' if has_arg > 0 else '')
         request = TransformStrRequest(code_range.start_column - 1, code_range.end_column, name + '(', name + '(' + arg)
         self.transform_call.append(request)
 
@@ -179,9 +179,9 @@ class SourceLine:
         source = SourceLine('inline MyFunc(int a, float val = 0.f) { ImGuiContext& g = *GImGui; Foo(28); SuperBar(); Foo(29);')
         source.request_replace_context(CodeRange('', 1, 60, 1, 66))
         source.request_replace_proto(CodeRange('', 1, 8, 1, 14), 'MyFunc', 2)
-        source.request_replace_call(CodeRange('', 1, 68, 1, 71), 'Foo', 1)
-        source.request_replace_call(CodeRange('', 1, 77, 1, 85), 'SuperBar', 0)
-        source.request_replace_call(CodeRange('', 1, 89, 1, 92), 'Foo', 1)
+        source.request_replace_call('ctx', CodeRange('', 1, 68, 1, 71), 'Foo', 1)
+        source.request_replace_call('ctx', CodeRange('', 1, 77, 1, 85), 'SuperBar', 0)
+        source.request_replace_call('ctx', CodeRange('', 1, 89, 1, 92), 'Foo', 1)
         source.transform()
         assert source.line == 'inline MyFunc(ImGuiContext* ctx, int a, float val = 0.f) { ImGuiContext& g = *ctx; Foo(ctx, 28); SuperBar(ctx); Foo(ctx, 29);', 'Source test failed'
 
@@ -286,9 +286,9 @@ class ParsingContext:
         assert path in self._sources
         self._sources[path][line - 1].request_replace_proto(code_range, name, has_arg)
 
-    def request_replace_call(self, path : pathlib.Path, line: int, code_range: CodeRange, name: str, has_arg : int):
+    def request_replace_call(self, path : pathlib.Path, line: int, var_name: str,  code_range: CodeRange, name: str, has_arg : int):
         assert path in self._sources
-        self._sources[path][line - 1].request_replace_call(code_range, name, has_arg)
+        self._sources[path][line - 1].request_replace_call(var_name, code_range, name, has_arg)
 
     def transform_sources(self):
         for path, source in self._sources.items():
@@ -464,8 +464,8 @@ class FunctionDatabase:
     """
     def __init__(self, ctx: ParsingContext, funcs : list[FunctionEntry]):
         self._ctx = ctx
-        self._declarations : dict[FunctionEntry] = dict()
-        self._definitions : dict[FunctionEntry] = dict()
+        self._declarations : dict[str, FunctionEntry] = dict()
+        self._definitions : dict[str, FunctionEntry] = dict()
         self._caller_to_call : dict[FunctionEntry, set(CallEntry)] = dict()
         self._callee_to_call : dict[FunctionEntry, set(CallEntry)] = dict()
         self._calls : dict[CallEntry, CallEntry] = dict()
@@ -533,9 +533,9 @@ class FunctionDatabase:
             self._caller_to_call[caller].add(call)
             self._callee_to_call[callee].add(call)
 
-    def add_log_call(self, name : str, code_range : CodeRange):
+    def add_log_call(self, name : str, code_range : CodeRange, from_method : bool):
         assert code_range not in self._log_call
-        self._log_call.add((name, code_range))
+        self._log_call.add((name, code_range, from_method))
 
     def compute_context_need(self):
         for id, func in self._definitions.items():
@@ -549,10 +549,15 @@ class FunctionDatabase:
             assert decl_entry.visited
             return
         
-        decl_entry.need_context_param = True
-        def_entry .need_context_param = True
         def_entry.visited = True
         decl_entry.visited = True
+
+        if def_entry.is_method:
+            assert decl_entry.is_method
+            return
+
+        decl_entry.need_context_param = True
+        def_entry .need_context_param = True
 
         for call in self._callee_to_call[callee]:
             self._set_need_context_recursive(call.caller)
@@ -664,7 +669,7 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
                 elif call_cursor.spelling == 'DebugLog':
                     name, code_range = ctx.find_log_symbol(call_cursor.location)
                     assert name is not None and code_range is not None
-                    func_db.add_log_call(name, code_range)
+                    func_db.add_log_call(name, code_range, func_cursor.kind == CursorKind.CXX_METHOD)
                 else:
                     if verbose:
                         print('WARNING: {} cannot be found at {}'.format(call_cursor.spelling, call_cursor.location))
@@ -698,13 +703,15 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
     print('--- FORWARD CONTEXT ---')
     for call in func_db.iter_calls():
         if call.callee.need_context_param:
-            ctx.request_replace_call(call.code_range.file, call.code_range.start_line, call.code_range, call.call_name, call.has_arg)
+            var_name = 'ctx' if not call.caller.is_method else 'Context'
+            ctx.request_replace_call(call.code_range.file, call.code_range.start_line, var_name, call.code_range, call.call_name, call.has_arg)
             if verbose:
                 print('Forward `context` to {} at {}'.format(call.callee.fq_name, call.code_range))
     
     print('--- FORWARD CONTEXT (LOG CALL) ---')
-    for name, code_range in func_db.iter_log_calls():
-        ctx.request_replace_call(code_range.file, code_range.start_line, code_range, name, True)
+    for name, code_range, from_method in func_db.iter_log_calls():
+        var_name = 'ctx' if not from_method else 'Context'
+        ctx.request_replace_call(code_range.file, code_range.start_line, var_name, code_range, name, True)
         if verbose:
             print('Forward `context` to {} at {}'.format(call.callee.fq_name, call.code_range))
 
