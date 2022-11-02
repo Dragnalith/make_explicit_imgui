@@ -47,6 +47,6 @@
 - [X] Instead of adding imguiex.h and imguiex.cpp and the new api inplace
 - [X] Handle function which already have an unused ctx parameter (like in imgui_tables.cpp)
 - [X] Generate backward compatible API
-- [ ] Fix ImGuiInputTextState, still depends on context
+- [X] Fix ImGuiInputTextState, still depends on context
 - [ ] Fix ImGuiTextFilter which depends on context
 - [ ] Improve script so it use context of classes when possible (ImGuiWindow, ImGuiIO, ImGuiListClipper)

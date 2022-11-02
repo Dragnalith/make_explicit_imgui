@@ -49,13 +49,19 @@
   - Physical design of file
   - Namespace ImGuiEx
   - Memory allocator explicit/implicit
-  - C function vs class
+  - C function vs class (problem because of imgui_internal.h)
   - ListClipper construction
   - atomic for MetricsActiveAllocation
-  - ImGuiTextFilter could depend on draw or not
+  - Breaking change
+    - ImGuiTextFilter::Draw
+    - ImGuiListClipper
+  
 
 - 2022-11-01 Problem:
   - Multithread
   - Link of independent library without interop
+
+- 2022-11-02: ImGuiTextFilterEx and ImGuiListClipperEx will be created to have
+
 
     
