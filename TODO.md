@@ -48,5 +48,7 @@
 - [X] Handle function which already have an unused ctx parameter (like in imgui_tables.cpp)
 - [X] Generate backward compatible API
 - [X] Fix ImGuiInputTextState, still depends on context
-- [ ] Fix ImGuiTextFilter which depends on context
-- [ ] Improve script so it use context of classes when possible (ImGuiWindow, ImGuiIO, ImGuiListClipper)
+- [X] Fix ImGuiTextFilter which depends on context
+- [X] Improve script so it use context of classes when possible (ImGuiWindow, ImGuiIO, ImGuiListClipper)
+- [ ] SetPlatformImeDataFn should take a context
+- [ ] Fix Forget to generate `return`

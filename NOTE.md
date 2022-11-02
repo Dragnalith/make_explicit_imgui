@@ -50,11 +50,14 @@
   - Namespace ImGuiEx
   - Memory allocator explicit/implicit
   - C function vs class (problem because of imgui_internal.h)
-  - ListClipper construction
+  - OnKeyPressed
+  - Style
   - atomic for MetricsActiveAllocation
-  - Breaking change
+  - Introduce 
     - ImGuiTextFilter::Draw
     - ImGuiListClipper
+  - Macro DISABLE_IMPLICIT_API
+  - Move ImGuiOnceUponAFrame
   
 
 - 2022-11-01 Problem:

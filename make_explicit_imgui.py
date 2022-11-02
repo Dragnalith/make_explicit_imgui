@@ -812,7 +812,7 @@ def generate(args, config: Config):
                 ('ImGui::', 'ImGuiEx::')
             ])
 
-        print('--- GENERATE imguiex.h, imguiex.cpp ---')
+        print('--- GENERATE imgui_implicit.cpp ---')
 
         with open(config.imgui_h, 'a', encoding='utf-8') as file:
             context_param : FunctionParameter = FunctionParameter('context', 'ImGuiContext*', None, None)
@@ -842,7 +842,7 @@ def generate(args, config: Config):
         with open(config.imgui_implicit, 'w', encoding='utf-8') as file:
             context_arg : FunctionParameter = FunctionParameter('GImGui', 'ImGuiContext*', None, None)
             file.write('#include "imgui.h"\n')
-            file.write('#include "imguiex.h"\n\n')
+            file.write('#include "imgui_internal.h"\n')
             file.write('ImGuiContext*   GImGui = NULL;\n\n')
             file.write('namespace ImGui\n')
             file.write('{\n')
@@ -861,15 +861,15 @@ def generate(args, config: Config):
                     params = params + [FunctionParameter('...', '', '...', None)]
                     args = args + [FunctionParameter('args', 'va_list', None, None)]
                     name = name + 'V'
-                file.write('    {type} {name}({signature}) {{\n'.format(type=api.return_type, name=api.name, signature=make_signature(params, with_default=False)))
+                file.write('{type} {name}({signature}) {{\n'.format(type=api.return_type, name=api.name, signature=make_signature(params, with_default=False)))
                 if (api.fmtargs) > 0:
-                    file.write('        va_list args;\n');
-                    file.write('        va_start(args, fmt);\n');
-                file.write('        ImGuiEx::{name}({args});\n'.format(name=name,args=make_args(args)))
+                    file.write('    va_list args;\n');
+                    file.write('    va_start(args, fmt);\n');
+                file.write('    ImGuiEx::{name}({args});\n'.format(name=name,args=make_args(args)))
                 if (api.fmtargs) > 0:
-                    file.write('        va_end(args);\n');
-                file.write('    }\n')
-            file.write('}\n')
+                    file.write('    va_end(args);\n');
+                file.write('}\n')
+            file.write('} // namespace ImGui \n')
 
 def dump_test_ast(args, config):
     index = clang.cindex.Index.create()
