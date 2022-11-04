@@ -52,3 +52,5 @@
 - [X] Improve script so it use context of classes when possible (ImGuiWindow, ImGuiIO, ImGuiListClipper)
 - [ ] SetPlatformImeDataFn should take a context
 - [ ] Fix Forget to generate `return`
+- [ ] Fix declare implementation with ImGui::hoge() instead of wrapping in a `namespace ImGui { hoge() }`
+- [ ] How to handle "Disable" flag?
