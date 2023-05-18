@@ -56,7 +56,8 @@
 - [X] Generate `IMGUI_DISABLE_IMPLICIT_API` macro
 - [X] Patch system for .vcxproj, Makefile and Xcode projects
 - [X] Preparatory Commit to declare ShowFontAtlas
-- [ ] Convert imgui_single_file.h
-- [ ] Fix IM_FMTARG and Fix IM_FMTLIST in ImGuiEx:: functions
+- [X] Convert imgui_single_file.h
+- [X] Fix IM_FMTARG and Fix IM_FMTLIST in ImGuiEx:: functions
+- [ ] Convert static method of embedded struct
 - [ ] Convert imgui_demo.cpp too
 - [ ] Find solution for Show*() functions (define in imgui_demo.cpp but declare in imgui.h)
