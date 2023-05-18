@@ -57,7 +57,7 @@
 - [X] Patch system for .vcxproj, Makefile and Xcode projects
 - [X] Preparatory Commit to declare ShowFontAtlas
 - [X] Convert imgui_single_file.h
-- [X] Fix IM_FMTARG and Fix IM_FMTLIST in ImGuiEx:: functions
+- [ ] Fix IM_FMTARG and Fix IM_FMTLIST in ImGuiEx:: functions
 - [ ] Convert static method of embedded struct
 - [ ] Convert imgui_demo.cpp too
 - [ ] Find solution for Show*() functions (define in imgui_demo.cpp but declare in imgui.h)
