@@ -55,9 +55,8 @@
 - [X] Add hard-coded implementation for ImGui::CreateContext, ImGui::DestroyContext, ImGui::GetCurrentContext, and ImGui::SetCurrentContext
 - [X] Generate `IMGUI_DISABLE_IMPLICIT_API` macro
 - [X] Patch system for .vcxproj, Makefile and Xcode projects
-- [ ] Preparatory Commit to remove GetCurrentContext() from ImGuiClipper
-- [ ] Preparatory Commit to declare ShowFontAtlas
+- [X] Preparatory Commit to declare ShowFontAtlas
 - [ ] Convert imgui_single_file.h
+- [ ] Fix IM_FMTARG and Fix IM_FMTLIST in ImGuiEx:: functions
 - [ ] Convert imgui_demo.cpp too
 - [ ] Find solution for Show*() functions (define in imgui_demo.cpp but declare in imgui.h)
-- [ ] Fix IM_FMTARG and Fix IM_FMTLIST in ImGuiEx:: functions

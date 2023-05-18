@@ -1,0 +1,49 @@
+diff --git a/imgui.cpp b/imgui.cpp
+index bf02138b..86543637 100644
+--- a/imgui.cpp
++++ b/imgui.cpp
+@@ -3468,16 +3468,11 @@ void ImGuiEx::RenderMouseCursor(ImGuiContext* ctx, ImVec2 base_pos, float base_s
+ // Note that we still point to some static data and members (such as GFontAtlas), so the state instance you end up using will point to the static data within its module
+ ImGuiContext* ImGuiEx::GetCurrentContext()
+ {
+-    return GImGui;
++    return NULL;
+ }
+ 
+-void ImGuiEx::SetCurrentContext(ImGuiContext* ctx)
++void ImGuiEx::SetCurrentContext(ImGuiContext*)
+ {
+-#ifdef IMGUI_SET_CURRENT_CONTEXT_FUNC
+-    IMGUI_SET_CURRENT_CONTEXT_FUNC(ctx); // For custom thread-based hackery you may want to have control over this.
+-#else
+-    GImGui = ctx;
+-#endif
+ }
+ 
+ void ImGuiEx::SetAllocatorFunctions(ImGuiMemAllocFunc alloc_func, ImGuiMemFreeFunc free_func, void* user_data)
+@@ -3497,23 +3492,14 @@ void ImGuiEx::GetAllocatorFunctions(ImGuiMemAllocFunc* p_alloc_func, ImGuiMemFre
+ 
+ ImGuiContext* ImGuiEx::CreateContext(ImFontAtlas* shared_font_atlas)
+ {
+-    ImGuiContext* prev_ctx = GetCurrentContext();
+     ImGuiContext* ctx = IM_NEW(ImGuiContext)(shared_font_atlas);
+-    SetCurrentContext(ctx);
+-    Initialize();
+-    if (prev_ctx != NULL)
+-        SetCurrentContext(prev_ctx); // Restore previous context if any, else keep new one.
++    Initialize(ctx);
+     return ctx;
+ }
+ 
+ void ImGuiEx::DestroyContext(ImGuiContext* ctx)
+ {
+-    ImGuiContext* prev_ctx = GetCurrentContext();
+-    if (ctx == NULL) //-V1051
+-        ctx = prev_ctx;
+-    SetCurrentContext(ctx);
+-    Shutdown();
+-    SetCurrentContext((prev_ctx != ctx) ? prev_ctx : NULL);
++    Shutdown(ctx);
+     IM_DELETE(ctx);
+ }
+ 

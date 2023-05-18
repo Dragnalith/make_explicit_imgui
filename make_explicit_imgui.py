@@ -91,7 +91,15 @@ class Config:
         self.imgui_implicit = root_folder / 'imgui_implicit.cpp'
         self.tmp = root_folder / 'tmp.cpp'
         self.script_root = pathlib.Path(__file__).parent.absolute()
-        self.project_patch = self.script_root / 'patches/project.patch'
+        self.patch = [
+            self.script_root / 'patches/project.patch',
+            self.script_root / 'patches/remove_gimgui.patch',
+            self.script_root / 'patches/get_key_data.patch',
+            self.script_root / 'patches/legacy_native_dupe.patch',
+            self.script_root / 'patches/once_upon_a_frame.patch',
+            self.script_root / 'patches/context.patch',
+            self.script_root / 'patches/remove_demo_api.patch',
+        ]
         self.test_cpp =  self.script_root / 'test/test.cpp'
         self.imgui_sources = set([
             self.imgui_h,
@@ -925,8 +933,9 @@ void ImGui::DestroyContext()
             file.write('\n#endif // IMGUI_DISABLE_IMPLICIT_API\n')
         
         # Apply patches
-        result = subprocess.run(['git', 'apply', config.project_patch], cwd=config.root_folder)
-        assert result.returncode == 0, "project.patch application has failed"
+        for p in config.patch:
+            result = subprocess.run(['git', 'apply', '--reject', p], cwd=config.root_folder)
+            assert result.returncode == 0, "{} application has failed".format(p)
 
 def dump_test_ast(args, config):
     index = clang.cindex.Index.create()

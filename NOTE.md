@@ -79,8 +79,3 @@
       - Replace ImGuiEx::GetAllocatorFunctions, ImGuiEx::CreateContext, ImGuiEx::DestroyContext
     - In imgui_implicit.cpp
       - Remove ShowDemoWindow, ShowAboutWindow, ShowFontSelector, ShowStyleSelector, ShowStyleEditor, ShowUserGuide
-    - In imgui.h
-      - Declare ShowFontAtlas
-
-
-    

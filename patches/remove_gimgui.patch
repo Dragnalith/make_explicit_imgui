@@ -1,0 +1,28 @@
+diff --git a/imgui.cpp b/imgui.cpp
+index 1aa59744..adb6b946 100644
+--- a/imgui.cpp
++++ b/imgui.cpp
+@@ -1076,23 +1076,6 @@ static void             UpdateViewportsNewFrame(ImGuiContext* ctx);
+ // - Using Dear ImGui via a shared library is not recommended, because of function call overhead and because we don't guarantee backward nor forward ABI compatibility.
+ // - Confused? In a debugger: add GImGui to your watch window and notice how its value changes depending on your current location (which DLL boundary you are in).
+ 
+-// Current context pointer. Implicitly used by all Dear ImGui functions. Always assumed to be != NULL.
+-// - ImGuiEx::CreateContext() will automatically set this pointer if it is NULL.
+-//   Change to a different context by calling ImGuiEx::SetCurrentContext().
+-// - Important: Dear ImGui functions are not thread-safe because of this pointer.
+-//   If you want thread-safety to allow N threads to access N different contexts:
+-//   - Change this variable to use thread local storage so each thread can refer to a different context, in your imconfig.h:
+-//         struct ImGuiContext;
+-//         extern thread_local ImGuiContext* MyImGuiTLS;
+-//         #define GImGui MyImGuiTLS
+-//     And then define MyImGuiTLS in one of your cpp files. Note that thread_local is a C++11 keyword, earlier C++ uses compiler-specific keyword.
+-//   - Future development aims to make this context pointer explicit to all calls. Also read https://github.com/ocornut/imgui/issues/586
+-//   - If you need a finite number of contexts, you may compile and use multiple instances of the ImGui code from a different namespace.
+-// - DLL users: read comments above.
+-#ifndef GImGui
+-ImGuiContext*   GImGui = NULL;
+-#endif
+-
+ // Helper: ImAtomicCounter. This is solely used to track allocation count across contexts, which is a debug feature.
+ // As such, the not-actually-atomic fallback is actually ok.
+ #if defined(__GNUC__) || defined(__clang__)
