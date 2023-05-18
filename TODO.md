@@ -57,6 +57,7 @@
 - [X] Patch system for .vcxproj, Makefile and Xcode projects
 - [X] Preparatory Commit to declare ShowFontAtlas
 - [X] Convert imgui_single_file.h
+- [ ] Change strategy related to StyleColorsDark(...)
 - [ ] Fix IM_FMTARG and Fix IM_FMTLIST in ImGuiEx:: functions
 - [ ] Convert static method of embedded struct
 - [ ] Convert imgui_demo.cpp too
