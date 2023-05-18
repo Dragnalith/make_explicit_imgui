@@ -1,0 +1,14 @@
+diff --git a/misc/single_file/imgui_single_file.h b/misc/single_file/imgui_single_file.h
+index 7ca31e0f..50faa510 100644
+--- a/misc/single_file/imgui_single_file.h
++++ b/misc/single_file/imgui_single_file.h
+@@ -21,6 +21,9 @@
+ #include "../../imgui.cpp"
+ #include "../../imgui_demo.cpp"
+ #include "../../imgui_draw.cpp"
++#ifndef IMGUI_DISABLE_IMPLICIT_API
++#include "../../imgui_implicit.cpp"
++#endif
+ #include "../../imgui_tables.cpp"
+ #include "../../imgui_widgets.cpp"
+ #ifdef IMGUI_ENABLE_FREETYPE

@@ -99,6 +99,7 @@ class Config:
             self.script_root / 'patches/once_upon_a_frame.patch',
             self.script_root / 'patches/context.patch',
             self.script_root / 'patches/remove_demo_api.patch',
+            self.script_root / 'patches/single_file.patch',
         ]
         self.test_cpp =  self.script_root / 'test/test.cpp'
         self.imgui_sources = set([
@@ -359,7 +360,7 @@ class FunctionEntry:
                 if child.spelling.startswith('IM_FMTARGS'):
                     fmtargs = child.spelling
                 if child.spelling.startswith('IM_FMTLIST'):
-                    fmtlib = child.spelling
+                    fmtlist = child.spelling
 
         self.is_api=is_api
 
@@ -829,6 +830,16 @@ def generate(args, config: Config):
                 ('namespace ImGui', 'namespace ImGuiEx'),
                 ('ImGui::', 'ImGuiEx::')
             ])
+
+        print('--- MODIFY IM_FMTLIST & IM_FMTARGS')
+        replace_in_file(config.imgui_h, [
+            ('IM_FMTARGS(3)', 'IM_FMTARGS(4)'),
+            ('IM_FMTLIST(3)', 'IM_FMTLIST(4)'),
+            ('IM_FMTARGS(2)', 'IM_FMTARGS(3)'),
+            ('IM_FMTLIST(2)', 'IM_FMTLIST(3)'),
+            ('IM_FMTARGS(1)', 'IM_FMTARGS(2)'),
+            ('IM_FMTLIST(1)', 'IM_FMTLIST(2)'),
+        ])
 
         print('--- GENERATE imgui_implicit.cpp ---')
 
