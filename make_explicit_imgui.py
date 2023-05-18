@@ -90,7 +90,9 @@ class Config:
         self.imguiex_h = root_folder / 'imguiex.h'
         self.imgui_implicit = root_folder / 'imgui_implicit.cpp'
         self.tmp = root_folder / 'tmp.cpp'
-        self.test_cpp = pathlib.Path(__file__).parent / 'test/test.cpp'
+        self.script_root = pathlib.Path(__file__).parent.absolute()
+        self.project_patch = self.script_root / 'patches/project.patch'
+        self.test_cpp =  self.script_root / 'test/test.cpp'
         self.imgui_sources = set([
             self.imgui_h,
             self.imgui_internal_h,
@@ -703,14 +705,14 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
     print('--- FORWARD CONTEXT ---')
     for call in func_db.iter_calls():
         if call.callee.need_context_param:
-            var_name = 'ctx' if not call.caller.is_method else 'Context'
+            var_name = 'ctx' if not call.caller.is_method else 'Ctx'
             ctx.request_replace_call(call.code_range.file, call.code_range.start_line, var_name, call.code_range, call.call_name, call.has_arg)
             if verbose:
                 print('Forward `context` to {} at {}'.format(call.callee.fq_name, call.code_range))
     
     print('--- FORWARD CONTEXT (LOG CALL) ---')
     for name, code_range, from_method in func_db.iter_log_calls():
-        var_name = 'ctx' if not from_method else 'Context'
+        var_name = 'ctx' if not from_method else 'Ctx'
         ctx.request_replace_call(code_range.file, code_range.start_line, var_name, code_range, name, True)
         if verbose:
             print('Forward `context` to {} at {}'.format(call.callee.fq_name, call.code_range))
@@ -751,6 +753,7 @@ def replace_in_file(path, pairs):
 def generate(args, config: Config):
     tmp_content = \
 '''
+#define IM_STATIC_ASSERT(...) static_assert(true)
 #define IM_FMTARGS(x) __attribute__((annotate("IM_FMTARGS(" #x ")")))
 #define IM_FMTLIST(x) __attribute__((annotate("IM_FMTLIST(" #x ")")))
 #define IMGUI_API __attribute__((annotate("imgui_api")))
@@ -764,11 +767,15 @@ def generate(args, config: Config):
     index = clang.cindex.Index.create()
     
     if args.execute:
-        subprocess.run(['git', 'checkout', '-f', '*.cpp', '*.h'], cwd=config.root_folder)
+        subprocess.run(['git', 'checkout', '-f'], cwd=config.root_folder)
 
+    # Disable annotation which generate compilation error with libclang
     replace_in_file(config.imgui_h, [
         ('#define IM_FMTARGS', '//TMP#define IM_FMTARGS'),
         ('#define IM_FMTLIST', '//TMP#define IM_FMTLIST'),
+    ])
+    replace_in_file(config.imgui_internal_h, [
+        ('#define IM_STATIC_ASSERT', '//TMP#define IM_STATIC_ASSERT'),
     ])
 
     tu = index.parse(config.tmp, unsaved_files=[(config.tmp, tmp_content)], args=['-std=c++17'])
@@ -776,6 +783,9 @@ def generate(args, config: Config):
     replace_in_file(config.imgui_h, [
         ('//TMP#define IM_FMTARGS', '#define IM_FMTARGS'),
         ('//TMP#define IM_FMTLIST', '#define IM_FMTLIST'),
+    ])
+    replace_in_file(config.imgui_internal_h, [
+        ('//TMP#define IM_STATIC_ASSERT', '#define IM_STATIC_ASSERT'),
     ])
 
     ctx = ParsingContext(tu, config)
@@ -817,8 +827,14 @@ def generate(args, config: Config):
         with open(config.imgui_h, 'a', encoding='utf-8') as file:
             context_param : FunctionParameter = FunctionParameter('context', 'ImGuiContext*', None, None)
             file.write('\n')
+            file.write('\n#ifndef IMGUI_DISABLE_IMPLICIT_API\n')
+            file.write('\n')
             file.write('namespace ImGui\n')
             file.write('{\n')
+            file.write('    IMGUI_API ImGuiContext* GetCurrentContext();\n')
+            file.write('    IMGUI_API void SetCurrentContext(ImGuiContext* ctx);\n')
+            file.write('    IMGUI_API ImGuiContext* CreateContext(ImFontAtlas* shared_font_atlas = NULL);\n')
+            file.write('    IMGUI_API void DestroyContext();\n')
             for api in apis:
                 if api.name in BLACKLIST:
                     continue
@@ -837,15 +853,47 @@ def generate(args, config: Config):
                     signature=make_signature(params),
                     suffix=suffix
                 ))
-            file.write('}\n')
-            
+            file.write('} // namespace ImGui\n')
+            file.write('\n#endif // IMGUI_DISABLE_IMPLICIT_API\n')
+
         with open(config.imgui_implicit, 'w', encoding='utf-8') as file:
             context_arg : FunctionParameter = FunctionParameter('GImGui', 'ImGuiContext*', None, None)
             file.write('#include "imgui.h"\n')
-            file.write('#include "imgui_internal.h"\n')
-            file.write('ImGuiContext*   GImGui = NULL;\n\n')
-            file.write('namespace ImGui\n')
-            file.write('{\n')
+            file.write('#include "imgui_internal.h"\n\n')
+            file.write('#ifndef IMGUI_DISABLE_IMPLICIT_API\n\n')
+            file.write('ImGuiContext*   GImGui = NULL;\n')
+
+            file.write('''
+ImGuiContext* ImGui::GetCurrentContext()
+{
+    return GImGui;
+}
+
+void ImGui::SetCurrentContext(ImGuiContext* ctx)
+{
+#ifdef IMGUI_SET_CURRENT_CONTEXT_FUNC
+    IMGUI_SET_CURRENT_CONTEXT_FUNC(ctx); // For custom thread-based hackery you may want to have control over this.
+#else
+    GImGui = ctx;
+#endif
+}
+
+ImGuiContext* ImGui::CreateContext(ImFontAtlas* shared_font_atlas)
+{
+    ImGuiContext* ctx = ImGuiEx::CreateContext(shared_font_atlas);
+    SetCurrentContext(ctx);
+    return ctx;
+}
+
+void ImGui::DestroyContext()
+{
+    ImGuiContext* ctx = GetCurrentContext();
+    ImGuiEx::DestroyContext(ctx);
+    SetCurrentContext(NULL);
+}
+
+''')
+
             for api in apis:
                 params = api.params
                 name = api.name
@@ -861,15 +909,24 @@ def generate(args, config: Config):
                     params = params + [FunctionParameter('...', '', '...', None)]
                     args = args + [FunctionParameter('args', 'va_list', None, None)]
                     name = name + 'V'
-                file.write('{type} {name}({signature}) {{\n'.format(type=api.return_type, name=api.name, signature=make_signature(params, with_default=False)))
+                file.write('{type} ImGui::{name}({signature}) {{'.format(type=api.return_type, name=api.name, signature=make_signature(params, with_default=False)))
                 if (api.fmtargs) > 0:
-                    file.write('    va_list args;\n');
-                    file.write('    va_start(args, fmt);\n');
-                file.write('    ImGuiEx::{name}({args});\n'.format(name=name,args=make_args(args)))
+                    file.write(' va_list args;');
+                    file.write(' va_start(args, fmt);')
+                
+                has_return_type = api.return_type != 'void'
+                prefix = ' {} r ='.format(api.return_type) if has_return_type else ''
+                file.write('{prefix} ImGuiEx::{name}({args});'.format(prefix=prefix,name=name,args=make_args(args)))
                 if (api.fmtargs) > 0:
-                    file.write('    va_end(args);\n');
-                file.write('}\n')
-            file.write('} // namespace ImGui \n')
+                    file.write(' va_end(args);')
+                if has_return_type:
+                    file.write(' return r;')
+                file.write(' }\n')
+            file.write('\n#endif // IMGUI_DISABLE_IMPLICIT_API\n')
+        
+        # Apply patches
+        result = subprocess.run(['git', 'apply', config.project_patch], cwd=config.root_folder)
+        assert result.returncode == 0, "project.patch application has failed"
 
 def dump_test_ast(args, config):
     index = clang.cindex.Index.create()

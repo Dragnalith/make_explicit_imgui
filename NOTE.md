@@ -66,5 +66,21 @@
 
 - 2022-11-02: ImGuiTextFilterEx and ImGuiListClipperEx will be created to have
 
+- 2023-05-18: Try to re-apply make_explicit_imgui.py on recent imgui codebase
+  - Manual Step:
+    - Move ImGuiOnceUponAFrame
+    - Replace `ImGuiEx::GetFrameCount()` with `ImGui::GetFrameCount()` in ImGuiOnceUponAFrame::operator boo()
+    - Remove in imgui_internal.h `inline GetKeyData(...)`
+    - In imgui.cpp
+      - fix `struct funcs { static bool IsLegacyNativeDupe(`
+      - Remove GImGui in imgui.cpp
+      - In ImGuiListClipper replace ImGuiEx::GetCurrentContext() with NULL
+      - Remove ImGuiEx::SetCurrentContext
+      - Replace ImGuiEx::GetAllocatorFunctions, ImGuiEx::CreateContext, ImGuiEx::DestroyContext
+    - In imgui_implicit.cpp
+      - Remove ShowDemoWindow, ShowAboutWindow, ShowFontSelector, ShowStyleSelector, ShowStyleEditor, ShowUserGuide
+    - In imgui.h
+      - Declare ShowFontAtlas
+
 
     
