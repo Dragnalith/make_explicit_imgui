@@ -100,6 +100,7 @@ class Config:
             self.script_root / 'patches/context.patch',
             self.script_root / 'patches/remove_demo_api.patch',
             self.script_root / 'patches/single_file.patch',
+            self.script_root / 'patches/style_init.patch',
         ]
         self.test_cpp =  self.script_root / 'test/test.cpp'
         self.imgui_sources = set([
