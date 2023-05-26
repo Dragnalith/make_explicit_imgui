@@ -19,6 +19,15 @@ BLACKLIST = set([
     'CreateTextFilter'
 ])
 
+CLASS_WITH_CONTEXT = set([
+    'ImGuiIO',
+    'ImGuiWindow',
+    'ImGuiTextFilter',
+    'ImGuiListClipper',
+    'ImGuiInputTextCallbackData',
+    'ImGuiInputTextState',
+])
+
 SPECIAL_TEMPLATE_FUNC = set([
     'ScaleRatioFromValueT',
     'ScaleValueFromRatioT',
@@ -400,10 +409,9 @@ class FunctionEntry:
         self.fmtargs = int(ctx.get_string(fmtargs_range)) if fmtargs_range is not None else 0
         self.fmtlist = int(ctx.get_string(fmtlist_range)) if fmtlist_range is not None else 0
         self.location=cursor.location
-        self.is_method= (cursor.kind == CursorKind.CXX_METHOD)
+        
+        self.method_class = get_fully_qualified_name(cursor.semantic_parent) if (cursor.kind == CursorKind.CXX_METHOD) else None
         self.is_definition=cursor.is_definition()
-        if self.is_method:
-            self.class_type = get_fully_qualified_name(cursor.semantic_parent)
 
         self.visited = False
         self.need_context_param = False
@@ -424,7 +432,9 @@ class FunctionEntry:
             self.is_obsolete_functions = False
 
 
-        def gimgui_visitor(child):
+        def gimgui_visitor(cursor_stack):
+            assert len(cursor_stack) > 0
+            child = cursor_stack[-1]
             if child.spelling == 'GImGui':
                 code_range = CodeRange.from_source_range(child.extent)
                 if (code_range.start_column == code_range.end_column):
@@ -571,9 +581,9 @@ class FunctionDatabase:
             self._caller_to_call[caller].add(call)
             self._callee_to_call[callee].add(call)
 
-    def add_log_call(self, name : str, code_range : CodeRange, from_method : bool):
+    def add_log_call(self, name : str, code_range : CodeRange, method_class : str):
         assert code_range not in self._log_call
-        self._log_call.add((name, code_range, from_method))
+        self._log_call.add((name, code_range, method_class))
 
     def compute_context_need(self):
         for id, func in self._definitions.items():
@@ -590,8 +600,8 @@ class FunctionDatabase:
         def_entry.visited = True
         decl_entry.visited = True
 
-        if def_entry.is_method:
-            assert decl_entry.is_method
+        if def_entry.method_class in CLASS_WITH_CONTEXT:
+            assert decl_entry.method_class in CLASS_WITH_CONTEXT
             return
 
         decl_entry.need_context_param = True
@@ -651,14 +661,21 @@ def get_id(cursor: clang.cindex.Cursor) -> str:
     else:
         return None
 
-def visit_cursor(parent: clang.cindex.Cursor, requested_kinds: CursorKind , callback):
+def visit_cursor(parent: clang.cindex.Cursor, requested_kinds: CursorKind , callback, stack = [], debug_stack = []):
     cursor : clang.cindex.Cursor
     for cursor in parent.get_children():
         visit_child = True
+        pop_stack = False
         if requested_kinds is None or cursor.kind in requested_kinds:
-            visit_child = callback(cursor)
+            stack.append(cursor)
+            pop_stack = True
+            visit_child = callback(stack)
         if visit_child:
-            visit_cursor(cursor, requested_kinds, callback)
+            debug_stack.append(cursor.kind)
+            visit_cursor(cursor, requested_kinds, callback, stack)
+            debug_stack.pop()
+        if pop_stack:
+            stack.pop()
     return
 
 def find_function(ctx: ParsingContext, config: Config, verbose=False):
@@ -668,17 +685,22 @@ def find_function(ctx: ParsingContext, config: Config, verbose=False):
     """
 
     funcs : list[FunctionEntry] = []
-    def add_function_visitor(cursor: clang.cindex.Cursor):
+    def add_function_visitor(cursor_stack: list[clang.cindex.Cursor]):
+        assert len(cursor_stack) > 0
+        cursor = cursor_stack[-1]
         if pathlib.Path(str(cursor.location.file)) in ctx.config.imgui_sources:
             if cursor.mangled_name == '' and not cursor.kind == CursorKind.FUNCTION_TEMPLATE:
                 if verbose:
                     print('mangle error in {} ({})'.format(cursor.spelling, cursor.location))
             elif config.is_valid_func(cursor):
                 func = FunctionEntry(ctx, cursor)
+                if func.name == 'IsLegacyNativeDupe':
+                    i=0
+                    i+=1
                 assert func.is_valid(ctx)
                 funcs.append(func)
 
-        return False
+        return True
 
     visit_cursor(ctx.tu.cursor, [CursorKind.FUNCTION_DECL, CursorKind.CXX_METHOD, CursorKind.FUNCTION_TEMPLATE], add_function_visitor)
 
@@ -687,35 +709,53 @@ def find_function(ctx: ParsingContext, config: Config, verbose=False):
 def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDatabase, verbose=False):
     funcs : list[FunctionEntry] = []
     
-    def function_declaration_visitor(func_cursor: clang.cindex.Cursor):
-        def function_call_visitor(call_cursor: clang.cindex.Cursor):
-            definition = call_cursor.get_definition()
-            if config.is_valid_func(func_cursor) and config.is_valid_func(definition):
-                extent = call_cursor.extent
-                if definition.spelling in SPECIAL_TEMPLATE_FUNC:
-                    code_range = ctx.find_until(call_cursor.location.file, call_cursor.location.line, call_cursor.location.column, '(')
-                    text = ctx.get_string(code_range)
-                    i = True
-                else:
-                    code_range = ctx.find_symbol(call_cursor.location.file, call_cursor.location.line, call_cursor.location.column, call_cursor.spelling + '(')
+    def function_visitor(cursor_stack: list[clang.cindex.Cursor]):
+        assert len(cursor_stack) >= 1
+        last_cursor = cursor_stack[-1]
+        if last_cursor.kind != CursorKind.CALL_EXPR:
+            return True
+        
+        if len(cursor_stack) < 2:
+            return True
 
-                if code_range is not None:
-                    code_range.end_column = code_range.end_column - 1 # Remove the '(')
-                    text = ctx.get_string(code_range)
-                    assert text.startswith(call_cursor.spelling)
-                    func_db.add_call(get_id(func_cursor), get_id(definition), code_range, text)
-                elif call_cursor.spelling == 'DebugLog':
-                    name, code_range = ctx.find_log_symbol(call_cursor.location)
-                    assert name is not None and code_range is not None
-                    func_db.add_log_call(name, code_range, func_cursor.kind == CursorKind.CXX_METHOD)
-                else:
-                    if verbose:
-                        print('WARNING: {} cannot be found at {}'.format(call_cursor.spelling, call_cursor.location))
+        func_cursor = None
+        for c in reversed(cursor_stack):
+            if c.kind != CursorKind.CALL_EXPR:
+                func_cursor = c
+                break
+
+        assert func_cursor is not None
+        call_cursor = cursor_stack[-1]
+
+        if func_cursor.kind in [CursorKind.CONSTRUCTOR, CursorKind.DESTRUCTOR, CursorKind.CONVERSION_FUNCTION]:
+            return True
+
+        definition = call_cursor.get_definition()
+        if config.is_valid_func(func_cursor) and config.is_valid_func(definition):
+            extent = call_cursor.extent
+            if definition.spelling in SPECIAL_TEMPLATE_FUNC:
+                code_range = ctx.find_until(call_cursor.location.file, call_cursor.location.line, call_cursor.location.column, '(')
+                text = ctx.get_string(code_range)
+                i = True
+            else:
+                code_range = ctx.find_symbol(call_cursor.location.file, call_cursor.location.line, call_cursor.location.column, call_cursor.spelling + '(')
+
+            if code_range is not None:
+                code_range.end_column = code_range.end_column - 1 # Remove the '(')
+                text = ctx.get_string(code_range)
+                assert text.startswith(call_cursor.spelling)
+                func_db.add_call(get_id(func_cursor), get_id(definition), code_range, text)
+            elif call_cursor.spelling == 'DebugLog':
+                name, code_range = ctx.find_log_symbol(call_cursor.location)
+                assert name is not None and code_range is not None
+                func_db.add_log_call(name, code_range, get_fully_qualified_name(func_cursor.semantic_parent) if func_cursor.kind == CursorKind.CXX_METHOD else None)
+            else:
+                if verbose:
+                    print('WARNING: {} cannot be found at {}'.format(call_cursor.spelling, call_cursor.location))
 
             return True
-        visit_cursor(func_cursor, [CursorKind.CALL_EXPR], function_call_visitor)
 
-    visit_cursor(ctx.tu.cursor, [CursorKind.FUNCTION_DECL, CursorKind.CXX_METHOD, CursorKind.FUNCTION_TEMPLATE], function_declaration_visitor)
+    visit_cursor(ctx.tu.cursor, [CursorKind.FUNCTION_DECL, CursorKind.CONSTRUCTOR, CursorKind.DESTRUCTOR, CursorKind.CONVERSION_FUNCTION, CursorKind.CXX_METHOD, CursorKind.FUNCTION_TEMPLATE, CursorKind.CALL_EXPR], function_visitor)
 
     func_db.compute_context_need()
 
@@ -750,14 +790,14 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
     print('--- FORWARD CONTEXT ---')
     for call in func_db.iter_calls():
         if call.callee.need_context_param:
-            var_name = 'ctx' if not call.caller.is_method else 'Ctx'
+            var_name = 'Ctx' if call.caller.method_class in CLASS_WITH_CONTEXT else 'ctx'
             ctx.request_replace_call(call.code_range.file, call.code_range.start_line, var_name, call.code_range, call.call_name, call.has_arg)
             if verbose:
                 print('Forward `context` to {} at {}'.format(call.callee.fq_name, call.code_range))
     
     print('--- FORWARD CONTEXT (LOG CALL) ---')
-    for name, code_range, from_method in func_db.iter_log_calls():
-        var_name = 'ctx' if not from_method else 'Ctx'
+    for name, code_range, method_class in func_db.iter_log_calls():
+        var_name = 'Ctx' if method_class in CLASS_WITH_CONTEXT else 'ctx'
         ctx.request_replace_call(code_range.file, code_range.start_line, var_name, code_range, name, True)
         if verbose:
             print('Forward `context` to {} at {}'.format(call.callee.fq_name, call.code_range))
@@ -843,16 +883,16 @@ def generate(args, config: Config):
     func_db = FunctionDatabase(ctx, funcs)
     find_function_call(ctx, config, func_db, verbose=args.verbose)
 
-    apis = [f for f in func_db.iter() if f.is_api and f.code_range.file == config.imgui_h and not f.is_method]
+    apis = [f for f in func_db.iter() if f.is_api and f.code_range.file == config.imgui_h and f.method_class is None]
 
-    methods = [f for f in func_db.iter_definitions() if f.need_context_param and f.is_method]
-    methods.sort(key= lambda f: f.class_type)
-    classes = set([f.class_type for f in methods])
+    methods = [f for f in func_db.iter_definitions() if f.need_context_param and f.method_class is not None]
+    methods.sort(key= lambda f: f.method_class)
+    classes = set([f.method_class for f in methods])
 
     print('--- CLASS depending on GImGui ---')
     for c in classes:
         print(c)
-        for m in [m for m in methods if m.class_type == c]:
+        for m in [m for m in methods if m.method_class == c]:
             print(' -> ' + m.fq_name)
 
     if args.execute:

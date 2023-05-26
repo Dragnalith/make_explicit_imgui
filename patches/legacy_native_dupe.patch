@@ -1,24 +1,13 @@
 diff --git a/imgui.cpp b/imgui.cpp
-index adb6b946..bf02138b 100644
+index f9fb7f1c..47c49b20 100644
 --- a/imgui.cpp
 +++ b/imgui.cpp
-@@ -13829,14 +13829,14 @@ void ImGuiEx::ShowMetricsWindow(ImGuiContext* ctx, bool* p_open)
+@@ -13834,7 +13834,7 @@ void ImGuiEx::ShowMetricsWindow(ImGuiContext* ctx, bool* p_open)
              // User code should never have to go through such hoops! You can generally iterate between ImGuiKey_NamedKey_BEGIN and ImGuiKey_NamedKey_END.
              Indent(ctx);
  #ifdef IMGUI_DISABLE_OBSOLETE_KEYIO
 -            struct funcs { static bool IsLegacyNativeDupe(ImGuiKey) { return false; } };
 +            struct funcs { static bool IsLegacyNativeDupe(ImGuiContext*, ImGuiKey) { return false; } };
  #else
--            struct funcs { static bool IsLegacyNativeDupe(ImGuiKey key) { return key < 512 && GetIO(ctx).KeyMap[key] != -1; } }; // Hide Native<>ImGuiKey duplicates when both exists in the array
-+            struct funcs { static bool IsLegacyNativeDupe(ImGuiContext* ctx, ImGuiKey key) { return key < 512 && GetIO(ctx).KeyMap[key] != -1; } }; // Hide Native<>ImGuiKey duplicates when both exists in the array
+             struct funcs { static bool IsLegacyNativeDupe(ImGuiContext* ctx, ImGuiKey key) { return key < 512 && GetIO(ctx).KeyMap[key] != -1; } }; // Hide Native<>ImGuiKey duplicates when both exists in the array
              //Text("Legacy raw:");      for (ImGuiKey key = ImGuiKey_KeysData_OFFSET; key < ImGuiKey_COUNT; key++) { if (io.KeysDown[key]) { SameLine(); Text("\"%s\" %d", GetKeyName(key), key); } }
- #endif
--            Text(ctx, "Keys down:");         for (ImGuiKey key = ImGuiKey_KeysData_OFFSET; key < ImGuiKey_COUNT; key = (ImGuiKey)(key + 1)) { if (funcs::IsLegacyNativeDupe(key) || !IsKeyDown(ctx, key)) continue;     SameLine(ctx); Text(ctx, IsNamedKey(key) ? "\"%s\"" : "\"%s\" %d", GetKeyName(ctx, key), key); SameLine(ctx); Text(ctx, "(%.02f)", GetKeyData(ctx, key)->DownDuration); }
--            Text(ctx, "Keys pressed:");      for (ImGuiKey key = ImGuiKey_KeysData_OFFSET; key < ImGuiKey_COUNT; key = (ImGuiKey)(key + 1)) { if (funcs::IsLegacyNativeDupe(key) || !IsKeyPressed(ctx, key)) continue;  SameLine(ctx); Text(ctx, IsNamedKey(key) ? "\"%s\"" : "\"%s\" %d", GetKeyName(ctx, key), key); }
--            Text(ctx, "Keys released:");     for (ImGuiKey key = ImGuiKey_KeysData_OFFSET; key < ImGuiKey_COUNT; key = (ImGuiKey)(key + 1)) { if (funcs::IsLegacyNativeDupe(key) || !IsKeyReleased(ctx, key)) continue; SameLine(ctx); Text(ctx, IsNamedKey(key) ? "\"%s\"" : "\"%s\" %d", GetKeyName(ctx, key), key); }
-+            Text(ctx, "Keys down:");         for (ImGuiKey key = ImGuiKey_KeysData_OFFSET; key < ImGuiKey_COUNT; key = (ImGuiKey)(key + 1)) { if (funcs::IsLegacyNativeDupe(ctx, key) || !IsKeyDown(ctx, key)) continue;     SameLine(ctx); Text(ctx, IsNamedKey(key) ? "\"%s\"" : "\"%s\" %d", GetKeyName(ctx, key), key); SameLine(ctx); Text(ctx, "(%.02f)", GetKeyData(ctx, key)->DownDuration); }
-+            Text(ctx, "Keys pressed:");      for (ImGuiKey key = ImGuiKey_KeysData_OFFSET; key < ImGuiKey_COUNT; key = (ImGuiKey)(key + 1)) { if (funcs::IsLegacyNativeDupe(ctx, key) || !IsKeyPressed(ctx, key)) continue;  SameLine(ctx); Text(ctx, IsNamedKey(key) ? "\"%s\"" : "\"%s\" %d", GetKeyName(ctx, key), key); }
-+            Text(ctx, "Keys released:");     for (ImGuiKey key = ImGuiKey_KeysData_OFFSET; key < ImGuiKey_COUNT; key = (ImGuiKey)(key + 1)) { if (funcs::IsLegacyNativeDupe(ctx, key) || !IsKeyReleased(ctx, key)) continue; SameLine(ctx); Text(ctx, IsNamedKey(key) ? "\"%s\"" : "\"%s\" %d", GetKeyName(ctx, key), key); }
-             Text(ctx, "Keys mods: %s%s%s%s", io.KeyCtrl ? "CTRL " : "", io.KeyShift ? "SHIFT " : "", io.KeyAlt ? "ALT " : "", io.KeySuper ? "SUPER " : "");
-             Text(ctx, "Chars queue:");       for (int i = 0; i < io.InputQueueCharacters.Size; i++) { ImWchar c = io.InputQueueCharacters[i]; SameLine(ctx); Text(ctx, "\'%c\' (0x%04X)", (c > ' ' && c <= 255) ? (char)c : '?', c); } // FIXME: We should convert 'c' to UTF-8 here but the functions are not public.
-             DebugRenderKeyboardPreview(ctx, GetWindowDrawList(ctx));
