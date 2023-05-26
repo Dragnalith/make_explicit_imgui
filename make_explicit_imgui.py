@@ -99,6 +99,8 @@ class Config:
             self.script_root / 'patches/remove_demo_api.patch',
             self.script_root / 'patches/single_file.patch',
             self.script_root / 'patches/style_init.patch',
+            self.script_root / 'patches/get_key_index.patch',
+            self.script_root / 'patches/disable_debug_tools.patch',
         ]
         self.test_cpp =  self.script_root / 'test/test.cpp'
         self.imgui_sources = set([
@@ -406,6 +408,21 @@ class FunctionEntry:
         self.visited = False
         self.need_context_param = False
         self.implicit_contexts : list[CodeRange] = []
+
+        # hardcoded cases
+        if self.name == 'GetKeyIndex':
+            self.is_obsolete_keyio = True
+        else:
+            self.is_obsolete_keyio = False
+
+        args = list(cursor.get_arguments())
+        if self.name == 'ImageButton' and len(args) > 0 and args[0].spelling == 'user_texture_id':
+            self.is_obsolete_functions = True
+        elif self.name == 'CalcListClipping':
+            self.is_obsolete_functions = True
+        else:
+            self.is_obsolete_functions = False
+
 
         def gimgui_visitor(child):
             if child.spelling == 'GImGui':
@@ -929,6 +946,12 @@ void ImGui::DestroyContext()
                 name = api.name
                 if api.name in BLACKLIST:
                     continue
+                if api.is_obsolete_functions:
+                    file.write('#ifndef IMGUI_DISABLE_OBSOLETE_FUNCTIONS\n')
+                if api.is_obsolete_keyio:
+                    file.write('#ifndef IMGUI_DISABLE_OBSOLETE_KEYIO\n')
+                if api.name == 'DebugTextEncoding':
+                    file.write('#ifndef IMGUI_DISABLE_DEBUG_TOOLS\n')
 
                 if api.need_context_param:
                     args = [context_arg] + api.params
@@ -952,6 +975,13 @@ void ImGui::DestroyContext()
                 if has_return_type:
                     file.write(' return r;')
                 file.write(' }\n')
+                
+                if api.is_obsolete_functions:
+                    file.write('#endif\n')
+                if api.is_obsolete_keyio:
+                    file.write('#endif\n')
+                if api.name == 'DebugTextEncoding':
+                    file.write('#endif\n')
             file.write('\n#endif // IMGUI_DISABLE_IMPLICIT_API\n')
         
         # Apply patches

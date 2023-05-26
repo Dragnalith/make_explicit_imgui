@@ -58,7 +58,7 @@
 - [X] Preparatory Commit to declare ShowFontAtlas
 - [X] Convert imgui_single_file.h
 - [X] Change strategy related to StyleColorsDark(...)
-- [ ] Fix IM_FMTARG and Fix IM_FMTLIST in ImGuiEx:: functions
+- [X] Fix IM_FMTARG and Fix IM_FMTLIST in ImGuiEx:: functions
 - [ ] Convert static method of embedded struct
 - [ ] Convert imgui_demo.cpp too
 - [ ] Find solution for Show*() functions (define in imgui_demo.cpp but declare in imgui.h)
