@@ -351,17 +351,26 @@ class FunctionEntry:
 
         params : list[FunctionParameter] = []
         is_api = False
-        fmtargs = None
-        fmtlist = None
+        fmtargs_range = None
+        fmtlist_range = None
         child : clang.cindex.Cursor
         for child in cursor.get_children():
             if child.kind == CursorKind.ANNOTATE_ATTR:
                 if child.spelling == 'imgui_api':
                     is_api = True
                 if child.spelling.startswith('IM_FMTARGS'):
-                    fmtargs = child.spelling
+                    range = CodeRange.from_source_range(child.extent)
+                    range.start_column += len('IM_FMTARGS(')
+                    range.end_column -= len(')')
+
+                    remove_me = ctx.get_string(range)
+                    fmtargs_range = range
                 if child.spelling.startswith('IM_FMTLIST'):
-                    fmtlist = child.spelling
+                    range = CodeRange.from_source_range(child.extent)
+                    range.start_column += len('IM_FMTLIST(')
+                    range.end_column -= len(')')
+                    remove_me = ctx.get_string(range)
+                    fmtlist_range = range
 
         self.is_api=is_api
 
@@ -386,8 +395,10 @@ class FunctionEntry:
         self.return_type : str = format_type_name(cursor.type.get_result().spelling)
         self.params : list[FunctionParameter] = params
         self.param_count = len(list(cursor.type.argument_types()))
-        self.fmtargs = int(fmtargs[11]) if fmtargs is not None else 0
-        self.fmtlist = int(fmtlist[11]) if fmtlist is not None else 0
+        self.fmtargs_range = fmtargs_range
+        self.fmtlist_range = fmtlist_range
+        self.fmtargs = int(ctx.get_string(fmtargs_range)) if fmtargs_range is not None else 0
+        self.fmtlist = int(ctx.get_string(fmtlist_range)) if fmtlist_range is not None else 0
         self.location=cursor.location
         self.is_method= (cursor.kind == CursorKind.CXX_METHOD)
         self.is_definition=cursor.is_definition()
@@ -699,9 +710,18 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
             ctx.request_replace_context(implicit_context)
             if verbose:
                 print('Replace `GImGui` with `context` in {} at {}'.format(func.fq_name, implicit_context))
+
     print('--- ADD CONTEXT PARAMETER ---')
     for func in func_db.iter():
         if func.need_context_param:
+            if not func.is_definition:
+                if func.fmtargs_range is not None:
+                    req = TransformStrRequest(func.fmtargs_range.start_column - 1, func.fmtargs_range.end_column - 1, str(func.fmtargs), str(func.fmtargs + 1))
+                    ctx.request_replace(func.fmtargs_range.file, func.fmtargs_range.start_line, req)
+                if func.fmtlist_range is not None:
+                    req = TransformStrRequest(func.fmtlist_range.start_column - 1, func.fmtlist_range.end_column - 1, str(func.fmtlist), str(func.fmtlist + 1))
+                    ctx.request_replace(func.fmtlist_range.file, func.fmtlist_range.start_line, req)
+
             if func.imgui_context_arg is None:
                 has_arg = func.param_count > 0
                 ctx.request_replace_proto(func.code_range.file, func.code_range.start_line, func.code_range, func.name, has_arg)
@@ -832,17 +852,7 @@ def generate(args, config: Config):
                 ('ImGui::', 'ImGuiEx::')
             ])
 
-        print('--- MODIFY IM_FMTLIST & IM_FMTARGS')
-        replace_in_file(config.imgui_h, [
-            ('IM_FMTARGS(3)', 'IM_FMTARGS(4)'),
-            ('IM_FMTLIST(3)', 'IM_FMTLIST(4)'),
-            ('IM_FMTARGS(2)', 'IM_FMTARGS(3)'),
-            ('IM_FMTLIST(2)', 'IM_FMTLIST(3)'),
-            ('IM_FMTARGS(1)', 'IM_FMTARGS(2)'),
-            ('IM_FMTLIST(1)', 'IM_FMTLIST(2)'),
-        ])
-
-        print('--- GENERATE imgui_implicit.cpp ---')
+        print('--- Modify imgui.h ---')
 
         with open(config.imgui_h, 'a', encoding='utf-8') as file:
             context_param : FunctionParameter = FunctionParameter('context', 'ImGuiContext*', None, None)
@@ -875,6 +885,8 @@ def generate(args, config: Config):
                 ))
             file.write('} // namespace ImGui\n')
             file.write('\n#endif // IMGUI_DISABLE_IMPLICIT_API\n')
+
+        print('--- GENERATE imgui_implicit.cpp ---')
 
         with open(config.imgui_implicit, 'w', encoding='utf-8') as file:
             context_arg : FunctionParameter = FunctionParameter('GImGui', 'ImGuiContext*', None, None)

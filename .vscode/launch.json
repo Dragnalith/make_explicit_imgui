@@ -2,11 +2,19 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Run",
+            "name": "Run (dryrun)",
             "type": "python",
             "request": "launch",
             "program": "${file}",
-            "args": ["..\\imgui",  "-x"],
+            "args": ["..\\fork_imgui"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Run (execute)",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "args": ["..\\fork_imgui",  "-x"],
             "console": "integratedTerminal"
         }
     ]
