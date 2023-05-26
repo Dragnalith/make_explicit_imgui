@@ -15,8 +15,6 @@ BLACKLIST = set([
     'AddContextHook',
     'RemoveContextHook',
     'CallContextHooks'
-    'MemAlloc',
-    'MemFree',
     'CreateListClipper',
     'CreateTextFilter'
 ])
