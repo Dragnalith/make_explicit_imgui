@@ -105,7 +105,7 @@ class Config:
             self.script_root / 'patches/legacy_native_dupe.patch',
             self.script_root / 'patches/once_upon_a_frame.patch',
             self.script_root / 'patches/context.patch',
-            self.script_root / 'patches/remove_demo_api.patch',
+            self.script_root / 'patches/remove_demo_assert.patch',
             self.script_root / 'patches/single_file.patch',
             self.script_root / 'patches/style_init.patch',
             self.script_root / 'patches/get_key_index.patch',
@@ -217,8 +217,7 @@ class ParsingContext:
             self._add_source(source)
 
         for source in config.imgui_sources:
-            if source != config.imgui_demo:
-                self.output_sources.add(source)
+            self.output_sources.add(source)
 
         self._log_symbols = [
             'IMGUI_DEBUG_LOG',
@@ -491,7 +490,7 @@ class CallEntry:
         self.id = (code_range.file, code_range.start_line, code_range.start_column)
         self.caller = caller
         self.callee = callee
-        self.code_range = code_range
+        self.code_range : CodeRange = code_range
         self.call_name = call_name
         self.has_arg = has_arg
 
@@ -589,6 +588,12 @@ class FunctionDatabase:
         for id, func in self._definitions.items():
             if len(func.implicit_contexts) > 0:
                 self._set_need_context_recursive(func)
+
+    def debug_print_calls(self):
+        for call in self.iter_calls():
+            print('--')
+            print('{} -> {}'.format(call.caller.name, call.callee.name))
+            print('{}({})'.format(call.code_range.file.absolute(), call.code_range.start_line))
 
     def _set_need_context_recursive(self, callee):
         decl_entry = self._declarations[callee.id]
@@ -753,7 +758,7 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
                 if verbose:
                     print('WARNING: {} cannot be found at {}'.format(call_cursor.spelling, call_cursor.location))
 
-            return True
+        return True
 
     visit_cursor(ctx.tu.cursor, [CursorKind.FUNCTION_DECL, CursorKind.CONSTRUCTOR, CursorKind.DESTRUCTOR, CursorKind.CONVERSION_FUNCTION, CursorKind.CXX_METHOD, CursorKind.FUNCTION_TEMPLATE, CursorKind.CALL_EXPR], function_visitor)
 

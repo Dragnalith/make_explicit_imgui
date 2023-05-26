@@ -60,5 +60,4 @@
 - [X] Change strategy related to StyleColorsDark(...)
 - [X] Fix IM_FMTARG and Fix IM_FMTLIST in ImGuiEx:: functions
 - [X] Fix nested class method not properly converted
-- [ ] Convert imgui_demo.cpp too
-- [ ] Find solution for Show*() functions (define in imgui_demo.cpp but declare in imgui.h)
+- [X] Convert imgui_demo.cpp too
