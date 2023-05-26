@@ -110,6 +110,9 @@ class Config:
             self.script_root / 'patches/style_init.patch',
             self.script_root / 'patches/get_key_index.patch',
             self.script_root / 'patches/disable_debug_tools.patch',
+            self.script_root / 'patches/fix_demo_text.patch',
+            self.script_root / 'patches/demo_legacy_native_dupe.patch',
+            self.script_root / 'patches/demo_disable_debug_tools.patch',
         ]
         self.test_cpp =  self.script_root / 'test/test.cpp'
         self.imgui_sources = set([
@@ -997,6 +1000,8 @@ void ImGui::DestroyContext()
                     file.write('#ifndef IMGUI_DISABLE_OBSOLETE_KEYIO\n')
                 if api.name == 'DebugTextEncoding':
                     file.write('#ifndef IMGUI_DISABLE_DEBUG_TOOLS\n')
+                if api.name in ['ShowFontSelector', 'ShowStyleSelector']:
+                    file.write('#ifndef IMGUI_DISABLE_DEMO_WINDOWS\n')
 
                 if api.need_context_param:
                     args = [context_arg] + api.params
@@ -1026,6 +1031,8 @@ void ImGui::DestroyContext()
                 if api.is_obsolete_keyio:
                     file.write('#endif\n')
                 if api.name == 'DebugTextEncoding':
+                    file.write('#endif\n')
+                if api.name in ['ShowFontSelector', 'ShowStyleSelector']:
                     file.write('#endif\n')
             file.write('\n#endif // IMGUI_DISABLE_IMPLICIT_API\n')
         

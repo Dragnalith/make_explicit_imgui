@@ -1,0 +1,19 @@
+diff --git a/imgui_demo.cpp b/imgui_demo.cpp
+index bf2bb838..6d086312 100644
+--- a/imgui_demo.cpp
++++ b/imgui_demo.cpp
+@@ -8035,10 +8035,10 @@ void ShowExampleAppDocuments(ImGuiContext* ctx, bool* p_open)
+ // End of Demo code
+ #else
+ 
+-void ImGuiEx::ShowAboutWindow(bool*) {}
+-void ImGuiEx::ShowDemoWindow(bool*) {}
+-void ImGuiEx::ShowUserGuide() {}
+-void ImGuiEx::ShowStyleEditor(ImGuiStyle*) {}
++void ImGuiEx::ShowAboutWindow(ImGuiContext*, bool*) {}
++void ImGuiEx::ShowDemoWindow(ImGuiContext*, bool*) {}
++void ImGuiEx::ShowUserGuide(ImGuiContext*) {}
++void ImGuiEx::ShowStyleEditor(ImGuiContext*, ImGuiStyle*) {}
+ 
+ #endif
+ 
