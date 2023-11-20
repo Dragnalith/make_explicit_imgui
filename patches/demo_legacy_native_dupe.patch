@@ -10,4 +10,4 @@ index 65f45c6c..bf2bb838 100644
 +            struct funcs { static bool IsLegacyNativeDupe(ImGuiContext*, ImGuiKey) { return false; } };
              ImGuiKey start_key = ImGuiKey_NamedKey_BEGIN;
  #else
-             struct funcs { static bool IsLegacyNativeDupe(ImGuiContext* ctx, ImGuiKey key) { return key < 512 && ImGuiEx::GetIO(ctx).KeyMap[key] != -1; } }; // Hide Native<>ImGuiKey duplicates when both exists in the array
+             struct funcs { static bool IsLegacyNativeDupe(ImGuiContext* ctx, ImGuiKey key) { return key < 512 && ImGui::GetIO(ctx).KeyMap[key] != -1; } }; // Hide Native<>ImGuiKey duplicates when both exists in the array

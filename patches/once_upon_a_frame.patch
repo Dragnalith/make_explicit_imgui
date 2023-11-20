@@ -7,28 +7,14 @@ index 06e1a291..1bce2f43 100644
  #endif
  
 -// Helper: Execute a block of code at maximum once a frame. Convenient if you want to quickly create a UI within deep-nested code that runs multiple times every frame.
--// Usage: static ImGuiOnceUponAFrame oaf; if (oaf) ImGuiEx::Text("This will be called only once per frame");
+-// Usage: static ImGuiOnceUponAFrame oaf; if (oaf) ImGui::Text("This will be called only once per frame");
 -struct ImGuiOnceUponAFrame
 -{
 -    ImGuiOnceUponAFrame() { RefFrame = -1; }
 -    mutable int RefFrame;
--    operator bool() const { int current_frame = ImGuiEx::GetFrameCount(); if (RefFrame == current_frame) return false; RefFrame = current_frame; return true; }
+-    operator bool() const { int current_frame = ImGui::GetFrameCount(); if (RefFrame == current_frame) return false; RefFrame = current_frame; return true; }
 -};
 -
  // Helper: Parse and apply text filters. In format "aaaaa[,bbbb][,ccccc]"
  struct ImGuiTextFilter
  {
-@@ -3540,4 +3531,13 @@ namespace ImGui
-     IMGUI_API void ShowUserGuide();
- } // namespace ImGui
- 
-+// Helper: Execute a block of code at maximum once a frame. Convenient if you want to quickly create a UI within deep-nested code that runs multiple times every frame.
-+// Usage: static ImGuiOnceUponAFrame oaf; if (oaf) ImGuiEx::Text("This will be called only once per frame");
-+struct ImGuiOnceUponAFrame
-+{
-+    ImGuiOnceUponAFrame() { RefFrame = -1; }
-+    mutable int RefFrame;
-+    operator bool() const { int current_frame = ImGui::GetFrameCount(); if (RefFrame == current_frame) return false; RefFrame = current_frame; return true; }
-+};
-+
- #endif // IMGUI_DISABLE_IMPLICIT_API

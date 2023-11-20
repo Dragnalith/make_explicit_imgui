@@ -2,89 +2,89 @@ diff --git a/imgui_demo.cpp b/imgui_demo.cpp
 index cb5276a2..65f45c6c 100644
 --- a/imgui_demo.cpp
 +++ b/imgui_demo.cpp
-@@ -5960,37 +5960,37 @@ void ImGuiEx::ShowAboutWindow(ImGuiContext* ctx, bool* p_open)
-         ImGuiEx::Text(ctx, "sizeof(size_t): %d, sizeof(ImDrawIdx): %d, sizeof(ImDrawVert): %d", (int)sizeof(size_t), (int)sizeof(ImDrawIdx), (int)sizeof(ImDrawVert));
-         ImGuiEx::Text(ctx, "define: __cplusplus=%d", (int)__cplusplus);
+@@ -5960,37 +5960,37 @@ void ImGui::ShowAboutWindow(ImGuiContext* ctx, bool* p_open)
+         ImGui::Text(ctx, "sizeof(size_t): %d, sizeof(ImDrawIdx): %d, sizeof(ImDrawVert): %d", (int)sizeof(size_t), (int)sizeof(ImDrawIdx), (int)sizeof(ImDrawVert));
+         ImGui::Text(ctx, "define: __cplusplus=%d", (int)__cplusplus);
  #ifdef IMGUI_DISABLE_OBSOLETE_FUNCTIONS
--        ImGuiEx::Text("define: IMGUI_DISABLE_OBSOLETE_FUNCTIONS");
-+        ImGuiEx::Text(ctx, "define: IMGUI_DISABLE_OBSOLETE_FUNCTIONS");
+-        ImGui::Text("define: IMGUI_DISABLE_OBSOLETE_FUNCTIONS");
++        ImGui::Text(ctx, "define: IMGUI_DISABLE_OBSOLETE_FUNCTIONS");
  #endif
  #ifdef IMGUI_DISABLE_OBSOLETE_KEYIO
--        ImGuiEx::Text("define: IMGUI_DISABLE_OBSOLETE_KEYIO");
-+        ImGuiEx::Text(ctx, "define: IMGUI_DISABLE_OBSOLETE_KEYIO");
+-        ImGui::Text("define: IMGUI_DISABLE_OBSOLETE_KEYIO");
++        ImGui::Text(ctx, "define: IMGUI_DISABLE_OBSOLETE_KEYIO");
  #endif
  #ifdef IMGUI_DISABLE_WIN32_DEFAULT_CLIPBOARD_FUNCTIONS
--        ImGuiEx::Text("define: IMGUI_DISABLE_WIN32_DEFAULT_CLIPBOARD_FUNCTIONS");
-+        ImGuiEx::Text(ctx, "define: IMGUI_DISABLE_WIN32_DEFAULT_CLIPBOARD_FUNCTIONS");
+-        ImGui::Text("define: IMGUI_DISABLE_WIN32_DEFAULT_CLIPBOARD_FUNCTIONS");
++        ImGui::Text(ctx, "define: IMGUI_DISABLE_WIN32_DEFAULT_CLIPBOARD_FUNCTIONS");
  #endif
  #ifdef IMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCTIONS
--        ImGuiEx::Text("define: IMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCTIONS");
-+        ImGuiEx::Text(ctx, "define: IMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCTIONS");
+-        ImGui::Text("define: IMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCTIONS");
++        ImGui::Text(ctx, "define: IMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCTIONS");
  #endif
  #ifdef IMGUI_DISABLE_WIN32_FUNCTIONS
--        ImGuiEx::Text("define: IMGUI_DISABLE_WIN32_FUNCTIONS");
-+        ImGuiEx::Text(ctx, "define: IMGUI_DISABLE_WIN32_FUNCTIONS");
+-        ImGui::Text("define: IMGUI_DISABLE_WIN32_FUNCTIONS");
++        ImGui::Text(ctx, "define: IMGUI_DISABLE_WIN32_FUNCTIONS");
  #endif
  #ifdef IMGUI_DISABLE_DEFAULT_FORMAT_FUNCTIONS
--        ImGuiEx::Text("define: IMGUI_DISABLE_DEFAULT_FORMAT_FUNCTIONS");
-+        ImGuiEx::Text(ctx, "define: IMGUI_DISABLE_DEFAULT_FORMAT_FUNCTIONS");
+-        ImGui::Text("define: IMGUI_DISABLE_DEFAULT_FORMAT_FUNCTIONS");
++        ImGui::Text(ctx, "define: IMGUI_DISABLE_DEFAULT_FORMAT_FUNCTIONS");
  #endif
  #ifdef IMGUI_DISABLE_DEFAULT_MATH_FUNCTIONS
--        ImGuiEx::Text("define: IMGUI_DISABLE_DEFAULT_MATH_FUNCTIONS");
-+        ImGuiEx::Text(ctx, "define: IMGUI_DISABLE_DEFAULT_MATH_FUNCTIONS");
+-        ImGui::Text("define: IMGUI_DISABLE_DEFAULT_MATH_FUNCTIONS");
++        ImGui::Text(ctx, "define: IMGUI_DISABLE_DEFAULT_MATH_FUNCTIONS");
  #endif
  #ifdef IMGUI_DISABLE_DEFAULT_FILE_FUNCTIONS
--        ImGuiEx::Text("define: IMGUI_DISABLE_DEFAULT_FILE_FUNCTIONS");
-+        ImGuiEx::Text(ctx, "define: IMGUI_DISABLE_DEFAULT_FILE_FUNCTIONS");
+-        ImGui::Text("define: IMGUI_DISABLE_DEFAULT_FILE_FUNCTIONS");
++        ImGui::Text(ctx, "define: IMGUI_DISABLE_DEFAULT_FILE_FUNCTIONS");
  #endif
  #ifdef IMGUI_DISABLE_FILE_FUNCTIONS
--        ImGuiEx::Text("define: IMGUI_DISABLE_FILE_FUNCTIONS");
-+        ImGuiEx::Text(ctx, "define: IMGUI_DISABLE_FILE_FUNCTIONS");
+-        ImGui::Text("define: IMGUI_DISABLE_FILE_FUNCTIONS");
++        ImGui::Text(ctx, "define: IMGUI_DISABLE_FILE_FUNCTIONS");
  #endif
  #ifdef IMGUI_DISABLE_DEFAULT_ALLOCATORS
--        ImGuiEx::Text("define: IMGUI_DISABLE_DEFAULT_ALLOCATORS");
-+        ImGuiEx::Text(ctx, "define: IMGUI_DISABLE_DEFAULT_ALLOCATORS");
+-        ImGui::Text("define: IMGUI_DISABLE_DEFAULT_ALLOCATORS");
++        ImGui::Text(ctx, "define: IMGUI_DISABLE_DEFAULT_ALLOCATORS");
  #endif
  #ifdef IMGUI_USE_BGRA_PACKED_COLOR
--        ImGuiEx::Text("define: IMGUI_USE_BGRA_PACKED_COLOR");
-+        ImGuiEx::Text(ctx, "define: IMGUI_USE_BGRA_PACKED_COLOR");
+-        ImGui::Text("define: IMGUI_USE_BGRA_PACKED_COLOR");
++        ImGui::Text(ctx, "define: IMGUI_USE_BGRA_PACKED_COLOR");
  #endif
  #ifdef _WIN32
-         ImGuiEx::Text(ctx, "define: _WIN32");
-@@ -5999,10 +5999,10 @@ void ImGuiEx::ShowAboutWindow(ImGuiContext* ctx, bool* p_open)
-         ImGuiEx::Text(ctx, "define: _WIN64");
+         ImGui::Text(ctx, "define: _WIN32");
+@@ -5999,10 +5999,10 @@ void ImGui::ShowAboutWindow(ImGuiContext* ctx, bool* p_open)
+         ImGui::Text(ctx, "define: _WIN64");
  #endif
  #ifdef __linux__
--        ImGuiEx::Text("define: __linux__");
-+        ImGuiEx::Text(ctx, "define: __linux__");
+-        ImGui::Text("define: __linux__");
++        ImGui::Text(ctx, "define: __linux__");
  #endif
  #ifdef __APPLE__
--        ImGuiEx::Text("define: __APPLE__");
-+        ImGuiEx::Text(ctx, "define: __APPLE__");
+-        ImGui::Text("define: __APPLE__");
++        ImGui::Text(ctx, "define: __APPLE__");
  #endif
  #ifdef _MSC_VER
-         ImGuiEx::Text(ctx, "define: _MSC_VER=%d", _MSC_VER);
-@@ -6011,19 +6011,19 @@ void ImGuiEx::ShowAboutWindow(ImGuiContext* ctx, bool* p_open)
-         ImGuiEx::Text(ctx, "define: _MSVC_LANG=%d", (int)_MSVC_LANG);
+         ImGui::Text(ctx, "define: _MSC_VER=%d", _MSC_VER);
+@@ -6011,19 +6011,19 @@ void ImGui::ShowAboutWindow(ImGuiContext* ctx, bool* p_open)
+         ImGui::Text(ctx, "define: _MSVC_LANG=%d", (int)_MSVC_LANG);
  #endif
  #ifdef __MINGW32__
--        ImGuiEx::Text("define: __MINGW32__");
-+        ImGuiEx::Text(ctx, "define: __MINGW32__");
+-        ImGui::Text("define: __MINGW32__");
++        ImGui::Text(ctx, "define: __MINGW32__");
  #endif
  #ifdef __MINGW64__
--        ImGuiEx::Text("define: __MINGW64__");
-+        ImGuiEx::Text(ctx, "define: __MINGW64__");
+-        ImGui::Text("define: __MINGW64__");
++        ImGui::Text(ctx, "define: __MINGW64__");
  #endif
  #ifdef __GNUC__
--        ImGuiEx::Text("define: __GNUC__=%d", (int)__GNUC__);
-+        ImGuiEx::Text(ctx, "define: __GNUC__=%d", (int)__GNUC__);
+-        ImGui::Text("define: __GNUC__=%d", (int)__GNUC__);
++        ImGui::Text(ctx, "define: __GNUC__=%d", (int)__GNUC__);
  #endif
  #ifdef __clang_version__
-         ImGuiEx::Text(ctx, "define: __clang_version__=%s", __clang_version__);
+         ImGui::Text(ctx, "define: __clang_version__=%s", __clang_version__);
  #endif
  #ifdef __EMSCRIPTEN__
--        ImGuiEx::Text("define: __EMSCRIPTEN__");
-+        ImGuiEx::Text(ctx, "define: __EMSCRIPTEN__");
+-        ImGui::Text("define: __EMSCRIPTEN__");
++        ImGui::Text(ctx, "define: __EMSCRIPTEN__");
  #endif
-         ImGuiEx::Separator(ctx);
-         ImGuiEx::Text(ctx, "io.BackendPlatformName: %s", io.BackendPlatformName ? io.BackendPlatformName : "NULL");
+         ImGui::Separator(ctx);
+         ImGui::Text(ctx, "io.BackendPlatformName: %s", io.BackendPlatformName ? io.BackendPlatformName : "NULL");

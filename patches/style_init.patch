@@ -1,13 +1,13 @@
 diff --git a/imgui.cpp b/imgui.cpp
-index 99a1332d..d8c17e43 100644
+index aa1e51d9..bd3cc42f 100644
 --- a/imgui.cpp
 +++ b/imgui.cpp
-@@ -1175,7 +1175,7 @@ ImGuiStyle::ImGuiStyle()
-     CircleTessellationMaxError = 0.30f;         // Maximum error (in pixels) allowed when using AddCircle()/AddCircleFilled() or drawing rounded corner rectangles with no explicit segment count specified. Decrease for higher quality but more geometry.
+@@ -1237,7 +1237,7 @@ ImGuiStyle::ImGuiStyle()
+     HoverFlagsForTooltipNav = ImGuiHoveredFlags_NoSharedDelay | ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled;  // Default flags when using IsItemHovered(ImGuiHoveredFlags_ForTooltip) or BeginItemTooltip()/SetItemTooltip() while using keyboard/gamepad.
  
      // Default theme
--    ImGuiEx::StyleColorsDark(this);
-+    ImGuiEx::StyleColorsDark(NULL, this);
+-    ImGui::StyleColorsDark(this);
++    ImGui::StyleColorsDark(NULL, this);
  }
  
  // To scale your entire UI (e.g. if you want your app to use High DPI or generally be DPI aware) you may use this helper function. Scaling the fonts is done separately and is up to you.

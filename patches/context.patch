@@ -1,29 +1,43 @@
 diff --git a/imgui.cpp b/imgui.cpp
-index bf02138b..86543637 100644
+index 12d23762..049ae9f8 100644
 --- a/imgui.cpp
 +++ b/imgui.cpp
-@@ -3468,16 +3468,11 @@ void ImGuiEx::RenderMouseCursor(ImGuiContext* ctx, ImVec2 base_pos, float base_s
- // Note that we still point to some static data and members (such as GFontAtlas), so the state instance you end up using will point to the static data within its module
- ImGuiContext* ImGuiEx::GetCurrentContext()
- {
--    return GImGui;
-+    return NULL;
- }
+@@ -2860,8 +2860,7 @@ ImGuiListClipper::~ImGuiListClipper()
  
--void ImGuiEx::SetCurrentContext(ImGuiContext* ctx)
-+void ImGuiEx::SetCurrentContext(ImGuiContext*)
+ void ImGuiListClipper::Begin(int items_count, float items_height)
  {
+-    if (Ctx == NULL)
+-        Ctx = ImGui::GetCurrentContext();
++    IM_ASSERT(Ctx != NULL);
+ 
+     ImGuiContext& g = *Ctx;
+     ImGuiWindow* window = g.CurrentWindow;
+@@ -3556,22 +3555,6 @@ void ImGui::RenderMouseCursor(ImGuiContext* ctx, ImVec2 base_pos, float base_sca
+ // [SECTION] INITIALIZATION, SHUTDOWN
+ //-----------------------------------------------------------------------------
+ 
+-// Internal state access - if you want to share Dear ImGui state between modules (e.g. DLL) or allocate it yourself
+-// Note that we still point to some static data and members (such as GFontAtlas), so the state instance you end up using will point to the static data within its module
+-ImGuiContext* ImGui::GetCurrentContext()
+-{
+-    return GImGui;
+-}
+-
+-void ImGui::SetCurrentContext(ImGuiContext* ctx)
+-{
 -#ifdef IMGUI_SET_CURRENT_CONTEXT_FUNC
 -    IMGUI_SET_CURRENT_CONTEXT_FUNC(ctx); // For custom thread-based hackery you may want to have control over this.
 -#else
 -    GImGui = ctx;
 -#endif
- }
+-}
+-
+ void ImGui::SetAllocatorFunctions(ImGuiMemAllocFunc alloc_func, ImGuiMemFreeFunc free_func, void* user_data)
+ {
+     GImAllocatorAllocFunc = alloc_func;
+@@ -3589,23 +3572,14 @@ void ImGui::GetAllocatorFunctions(ImGuiMemAllocFunc* p_alloc_func, ImGuiMemFreeF
  
- void ImGuiEx::SetAllocatorFunctions(ImGuiMemAllocFunc alloc_func, ImGuiMemFreeFunc free_func, void* user_data)
-@@ -3497,23 +3492,14 @@ void ImGuiEx::GetAllocatorFunctions(ImGuiMemAllocFunc* p_alloc_func, ImGuiMemFre
- 
- ImGuiContext* ImGuiEx::CreateContext(ImFontAtlas* shared_font_atlas)
+ ImGuiContext* ImGui::CreateContext(ImFontAtlas* shared_font_atlas)
  {
 -    ImGuiContext* prev_ctx = GetCurrentContext();
      ImGuiContext* ctx = IM_NEW(ImGuiContext)(shared_font_atlas);
@@ -35,7 +49,7 @@ index bf02138b..86543637 100644
      return ctx;
  }
  
- void ImGuiEx::DestroyContext(ImGuiContext* ctx)
+ void ImGui::DestroyContext(ImGuiContext* ctx)
  {
 -    ImGuiContext* prev_ctx = GetCurrentContext();
 -    if (ctx == NULL) //-V1051
@@ -47,3 +61,16 @@ index bf02138b..86543637 100644
      IM_DELETE(ctx);
  }
  
+diff --git a/imgui.h b/imgui.h
+index d32e6e10..ebe73807 100644
+--- a/imgui.h
++++ b/imgui.h
+@@ -292,8 +292,6 @@ namespace ImGui
+     //   for each static/DLL boundary you are calling from. Read "Context and Memory Allocators" section of imgui.cpp for details.
+     IMGUI_API ImGuiContext* CreateContext(ImFontAtlas* shared_font_atlas = NULL);
+     IMGUI_API void          DestroyContext(ImGuiContext* ctx = NULL);   // NULL = destroy current context
+-    IMGUI_API ImGuiContext* GetCurrentContext();
+-    IMGUI_API void          SetCurrentContext(ImGuiContext* ctx);
+ 
+     // Main
+     IMGUI_API ImGuiIO&      GetIO(ImGuiContext* ctx);                                    // access the IO structure (mouse/keyboard/gamepad inputs, time, various configuration options/flags)

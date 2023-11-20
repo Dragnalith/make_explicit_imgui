@@ -79,3 +79,12 @@
       - Replace ImGuiEx::GetAllocatorFunctions, ImGuiEx::CreateContext, ImGuiEx::DestroyContext
     - In imgui_implicit.cpp
       - Remove ShowDemoWindow, ShowAboutWindow, ShowFontSelector, ShowStyleSelector, ShowStyleEditor, ShowUserGuide
+
+- 2023-05-18: Update some patches
+  - Methodology:
+    - Comment from the patch list of make_explicit_imgui.py all patchs which are failing.
+    - One by one:
+      - apply the patch manually
+      - update the patch file using `git diff > ...`
+      - uncomment the patch on the patch
+      - very the patch does not fail anymore

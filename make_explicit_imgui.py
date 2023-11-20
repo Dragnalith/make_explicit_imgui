@@ -99,20 +99,25 @@ class Config:
         self.tmp = root_folder / 'tmp.cpp'
         self.script_root = pathlib.Path(__file__).parent.absolute()
         self.patch = [
-            self.script_root / 'patches/project.patch',
+            #self.script_root / 'patches/project.patch',
             self.script_root / 'patches/remove_gimgui.patch',
             self.script_root / 'patches/get_key_data.patch',
             self.script_root / 'patches/legacy_native_dupe.patch',
             self.script_root / 'patches/once_upon_a_frame.patch',
             self.script_root / 'patches/context.patch',
             self.script_root / 'patches/remove_demo_assert.patch',
-            self.script_root / 'patches/single_file.patch',
+            #self.script_root / 'patches/single_file.patch',
             self.script_root / 'patches/style_init.patch',
             self.script_root / 'patches/get_key_index.patch',
-            self.script_root / 'patches/disable_debug_tools.patch',
+            #self.script_root / 'patches/disable_debug_tools.patch',
             self.script_root / 'patches/fix_demo_text.patch',
             self.script_root / 'patches/demo_legacy_native_dupe.patch',
             self.script_root / 'patches/demo_disable_debug_tools.patch',
+            self.script_root / 'patches/dx12_main.patch',
+            self.script_root / 'patches/dx12_cpp.patch',
+            self.script_root / 'patches/dx12_h.patch',
+            self.script_root / 'patches/win32_cpp.patch',
+            self.script_root / 'patches/win32_h.patch',
         ]
         self.test_cpp =  self.script_root / 'test/test.cpp'
         self.imgui_sources = set([
@@ -388,6 +393,7 @@ class FunctionEntry:
         arg : clang.cindex.Cursor
 
         self.imgui_context_arg : FunctionParameter = None
+
         for arg in cursor.get_arguments():
             arg_code_range = CodeRange.from_source_range(arg.extent)
             declaration = ctx.get_string(arg_code_range)
@@ -611,6 +617,10 @@ class FunctionDatabase:
         if def_entry.method_class in CLASS_WITH_CONTEXT:
             assert decl_entry.method_class in CLASS_WITH_CONTEXT
             return
+        
+        #if len(def_entry.params) >= 1 and def_entry.params[0].declaration.startswith('ImGuiContext'):
+        #    assert len(decl_entry.params) >= 1 and decl_entry.params[0].declaration.startswith('ImGuiContext')
+        #    return
 
         decl_entry.need_context_param = True
         def_entry .need_context_param = True
@@ -797,7 +807,7 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
 
     print('--- FORWARD CONTEXT ---')
     for call in func_db.iter_calls():
-        if call.callee.need_context_param:
+        if call.callee.need_context_param and call.callee.imgui_context_arg is None:
             var_name = 'Ctx' if call.caller.method_class in CLASS_WITH_CONTEXT else 'ctx'
             ctx.request_replace_call(call.code_range.file, call.code_range.start_line, var_name, call.code_range, call.call_name, call.has_arg)
             if verbose:
@@ -908,133 +918,6 @@ def generate(args, config: Config):
 
 
         print('--- MODIFY NAMESPACE ---')
-
-        for source in ctx.output_sources:
-            replace_in_file(source, [
-                ('namespace ImGui', 'namespace ImGuiEx'),
-                ('ImGui::', 'ImGuiEx::')
-            ])
-
-        print('--- Modify imgui.h ---')
-
-        with open(config.imgui_h, 'a', encoding='utf-8') as file:
-            context_param : FunctionParameter = FunctionParameter('context', 'ImGuiContext*', None, None)
-            file.write('\n')
-            file.write('\n#ifndef IMGUI_DISABLE_IMPLICIT_API\n')
-            file.write('\n')
-            file.write('namespace ImGui\n')
-            file.write('{\n')
-            file.write('    IMGUI_API ImGuiContext* GetCurrentContext();\n')
-            file.write('    IMGUI_API void SetCurrentContext(ImGuiContext* ctx);\n')
-            file.write('    IMGUI_API ImGuiContext* CreateContext(ImFontAtlas* shared_font_atlas = NULL);\n')
-            file.write('    IMGUI_API void DestroyContext();\n')
-            for api in apis:
-                if api.name in BLACKLIST:
-                    continue
-
-                params = api.params
-                arg_offset = 0
-                suffix = ''
-                if api.fmtlist > 0:
-                    suffix = ' IM_FMTLIST({})'.format(api.fmtlist + arg_offset)
-                if api.fmtargs > 0:
-                    suffix = ' IM_FMTARGS({})'.format(api.fmtargs + arg_offset)
-                    params = params + [FunctionParameter('...', '', '...', None)]
-                file.write('    IMGUI_API {type} {name}({signature}){suffix};\n'.format(
-                    type=api.return_type, 
-                    name=api.name, 
-                    signature=make_signature(params),
-                    suffix=suffix
-                ))
-            file.write('} // namespace ImGui\n')
-            file.write('\n#endif // IMGUI_DISABLE_IMPLICIT_API\n')
-
-        print('--- GENERATE imgui_implicit.cpp ---')
-
-        with open(config.imgui_implicit, 'w', encoding='utf-8') as file:
-            context_arg : FunctionParameter = FunctionParameter('GImGui', 'ImGuiContext*', None, None)
-            file.write('#include "imgui.h"\n')
-            file.write('#include "imgui_internal.h"\n\n')
-            file.write('#ifndef IMGUI_DISABLE_IMPLICIT_API\n\n')
-            file.write('ImGuiContext*   GImGui = NULL;\n')
-
-            file.write('''
-ImGuiContext* ImGui::GetCurrentContext()
-{
-    return GImGui;
-}
-
-void ImGui::SetCurrentContext(ImGuiContext* ctx)
-{
-#ifdef IMGUI_SET_CURRENT_CONTEXT_FUNC
-    IMGUI_SET_CURRENT_CONTEXT_FUNC(ctx); // For custom thread-based hackery you may want to have control over this.
-#else
-    GImGui = ctx;
-#endif
-}
-
-ImGuiContext* ImGui::CreateContext(ImFontAtlas* shared_font_atlas)
-{
-    ImGuiContext* ctx = ImGuiEx::CreateContext(shared_font_atlas);
-    SetCurrentContext(ctx);
-    return ctx;
-}
-
-void ImGui::DestroyContext()
-{
-    ImGuiContext* ctx = GetCurrentContext();
-    ImGuiEx::DestroyContext(ctx);
-    SetCurrentContext(NULL);
-}
-
-''')
-
-            for api in apis:
-                params = api.params
-                name = api.name
-                if api.name in BLACKLIST:
-                    continue
-                if api.is_obsolete_functions:
-                    file.write('#ifndef IMGUI_DISABLE_OBSOLETE_FUNCTIONS\n')
-                if api.is_obsolete_keyio:
-                    file.write('#ifndef IMGUI_DISABLE_OBSOLETE_KEYIO\n')
-                if api.name == 'DebugTextEncoding':
-                    file.write('#ifndef IMGUI_DISABLE_DEBUG_TOOLS\n')
-                if api.name in ['ShowFontSelector', 'ShowStyleSelector']:
-                    file.write('#ifndef IMGUI_DISABLE_DEMO_WINDOWS\n')
-
-                if api.need_context_param:
-                    args = [context_arg] + api.params
-                else:
-                    args = api.params
-
-                if api.fmtargs > 0:
-                    params = params + [FunctionParameter('...', '', '...', None)]
-                    args = args + [FunctionParameter('args', 'va_list', None, None)]
-                    name = name + 'V'
-                file.write('{type} ImGui::{name}({signature}) {{'.format(type=api.return_type, name=api.name, signature=make_signature(params, with_default=False)))
-                if (api.fmtargs) > 0:
-                    file.write(' va_list args;');
-                    file.write(' va_start(args, fmt);')
-                
-                has_return_type = api.return_type != 'void'
-                prefix = ' {} r ='.format(api.return_type) if has_return_type else ''
-                file.write('{prefix} ImGuiEx::{name}({args});'.format(prefix=prefix,name=name,args=make_args(args)))
-                if (api.fmtargs) > 0:
-                    file.write(' va_end(args);')
-                if has_return_type:
-                    file.write(' return r;')
-                file.write(' }\n')
-                
-                if api.is_obsolete_functions:
-                    file.write('#endif\n')
-                if api.is_obsolete_keyio:
-                    file.write('#endif\n')
-                if api.name == 'DebugTextEncoding':
-                    file.write('#endif\n')
-                if api.name in ['ShowFontSelector', 'ShowStyleSelector']:
-                    file.write('#endif\n')
-            file.write('\n#endif // IMGUI_DISABLE_IMPLICIT_API\n')
         
         # Apply patches
         for p in config.patch:

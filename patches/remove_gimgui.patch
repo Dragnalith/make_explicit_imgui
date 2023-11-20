@@ -7,8 +7,8 @@ index 1aa59744..adb6b946 100644
  // - Confused? In a debugger: add GImGui to your watch window and notice how its value changes depending on your current location (which DLL boundary you are in).
  
 -// Current context pointer. Implicitly used by all Dear ImGui functions. Always assumed to be != NULL.
--// - ImGuiEx::CreateContext() will automatically set this pointer if it is NULL.
--//   Change to a different context by calling ImGuiEx::SetCurrentContext().
+-// - ImGui::CreateContext() will automatically set this pointer if it is NULL.
+-//   Change to a different context by calling ImGui::SetCurrentContext().
 -// - Important: Dear ImGui functions are not thread-safe because of this pointer.
 -//   If you want thread-safety to allow N threads to access N different contexts:
 -//   - Change this variable to use thread local storage so each thread can refer to a different context, in your imconfig.h:

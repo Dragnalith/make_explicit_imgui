@@ -61,3 +61,5 @@
 - [X] Fix IM_FMTARG and Fix IM_FMTLIST in ImGuiEx:: functions
 - [X] Fix nested class method not properly converted
 - [X] Convert imgui_demo.cpp too
+- [X] Remove implicit: Remove ImGui::SetCurrentContext and ImGui::GetCurrentContext
+- [X] Remove implicit: Fix `InputTextFilterCharacter` problem

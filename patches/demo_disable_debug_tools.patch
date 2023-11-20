@@ -6,14 +6,14 @@ index bf2bb838..6d086312 100644
  // End of Demo code
  #else
  
--void ImGuiEx::ShowAboutWindow(bool*) {}
--void ImGuiEx::ShowDemoWindow(bool*) {}
--void ImGuiEx::ShowUserGuide() {}
--void ImGuiEx::ShowStyleEditor(ImGuiStyle*) {}
-+void ImGuiEx::ShowAboutWindow(ImGuiContext*, bool*) {}
-+void ImGuiEx::ShowDemoWindow(ImGuiContext*, bool*) {}
-+void ImGuiEx::ShowUserGuide(ImGuiContext*) {}
-+void ImGuiEx::ShowStyleEditor(ImGuiContext*, ImGuiStyle*) {}
+-void ImGui::ShowAboutWindow(bool*) {}
+-void ImGui::ShowDemoWindow(bool*) {}
+-void ImGui::ShowUserGuide() {}
+-void ImGui::ShowStyleEditor(ImGuiStyle*) {}
++void ImGui::ShowAboutWindow(ImGuiContext*, bool*) {}
++void ImGui::ShowDemoWindow(ImGuiContext*, bool*) {}
++void ImGui::ShowUserGuide(ImGuiContext*) {}
++void ImGui::ShowStyleEditor(ImGuiContext*, ImGuiStyle*) {}
  
  #endif
  
