@@ -234,7 +234,9 @@ class ParsingContext:
             'IMGUI_DEBUG_LOG_POPUP',
             'IMGUI_DEBUG_LOG_NAV',
             'IMGUI_DEBUG_LOG_CLIPPER',
-            'IMGUI_DEBUG_LOG_IO'
+            'IMGUI_DEBUG_LOG_IO',
+            'IMGUI_DEBUG_LOG_DOCKING',
+            'IMGUI_DEBUG_LOG_VIEWPORT'
         ]
 
     def _add_source(self, path):
