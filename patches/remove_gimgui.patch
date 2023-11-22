@@ -1,8 +1,8 @@
 diff --git a/imgui.cpp b/imgui.cpp
-index 1aa59744..adb6b946 100644
+index 1b1b4625..f0195f26 100644
 --- a/imgui.cpp
 +++ b/imgui.cpp
-@@ -1076,23 +1076,6 @@ static void             UpdateViewportsNewFrame(ImGuiContext* ctx);
+@@ -1132,23 +1132,6 @@ static void             UpdateViewportsNewFrame(ImGuiContext* ctx);
  // - Using Dear ImGui via a shared library is not recommended, because of function call overhead and because we don't guarantee backward nor forward ABI compatibility.
  // - Confused? In a debugger: add GImGui to your watch window and notice how its value changes depending on your current location (which DLL boundary you are in).
  
@@ -23,6 +23,6 @@ index 1aa59744..adb6b946 100644
 -ImGuiContext*   GImGui = NULL;
 -#endif
 -
- // Helper: ImAtomicCounter. This is solely used to track allocation count across contexts, which is a debug feature.
- // As such, the not-actually-atomic fallback is actually ok.
- #if defined(__GNUC__) || defined(__clang__)
+ // Memory Allocator functions. Use SetAllocatorFunctions() to change them.
+ // - You probably don't want to modify that mid-program, and if you use global/static e.g. ImVector<> instances you may need to keep them accessible during program destruction.
+ // - DLL users: read comments above.

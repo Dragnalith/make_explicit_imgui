@@ -99,17 +99,14 @@ class Config:
         self.tmp = root_folder / 'tmp.cpp'
         self.script_root = pathlib.Path(__file__).parent.absolute()
         self.patch = [
-            #self.script_root / 'patches/project.patch',
             self.script_root / 'patches/remove_gimgui.patch',
             self.script_root / 'patches/get_key_data.patch',
             self.script_root / 'patches/legacy_native_dupe.patch',
             self.script_root / 'patches/once_upon_a_frame.patch',
             self.script_root / 'patches/context.patch',
             self.script_root / 'patches/remove_demo_assert.patch',
-            #self.script_root / 'patches/single_file.patch',
             self.script_root / 'patches/style_init.patch',
             self.script_root / 'patches/get_key_index.patch',
-            #self.script_root / 'patches/disable_debug_tools.patch',
             self.script_root / 'patches/fix_demo_text.patch',
             self.script_root / 'patches/demo_legacy_native_dupe.patch',
             self.script_root / 'patches/demo_disable_debug_tools.patch',
