@@ -64,5 +64,5 @@
 - [X] Remove implicit: Remove ImGui::SetCurrentContext and ImGui::GetCurrentContext
 - [X] Remove implicit: Fix `InputTextFilterCharacter` problem
 - [X] Patch are applied through git rebase
-- [ ] Add an option to automatically greate a commit and continue the rebase
-- [ ] Clean-up the log
+- [X] Add an option to automatically create the commit and continue the rebase
+- [X] Clean-up the log
