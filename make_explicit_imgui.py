@@ -5,6 +5,7 @@ import clang.cindex
 from clang.cindex import CursorKind, TypeKind
 import argparse
 import pathlib
+import os
 from typing import Iterable
 
 BLACKLIST = set([
@@ -85,19 +86,20 @@ class CodeRange:
 
 class Config:
     def __init__(self, root_folder):
-        self.root_folder = root_folder
-        self.imgui_h = root_folder / 'imgui.h'
-        self.imstb_textedit = root_folder / 'imstb_textedit.h'
-        self.imgui_internal_h = root_folder / 'imgui_internal.h'
-        self.imgui_cpp = root_folder / 'imgui.cpp'
-        self.imgui_tables = root_folder / 'imgui_tables.cpp'
-        self.imgui_widgets = root_folder / 'imgui_widgets.cpp'
-        self.imgui_draw = root_folder / 'imgui_draw.cpp'
-        self.imgui_demo = root_folder / 'imgui_demo.cpp'
-        self.imguiex_h = root_folder / 'imguiex.h'
-        self.imgui_implicit = root_folder / 'imgui_implicit.cpp'
-        self.tmp = root_folder / 'tmp.cpp'
-        self.script_root = pathlib.Path(__file__).parent.absolute()
+        self.root_folder = pathlib.Path(root_folder).resolve()
+        self.imgui_h = self.root_folder / 'imgui.h'
+        self.imstb_textedit = self.root_folder / 'imstb_textedit.h'
+        self.imgui_internal_h = self.root_folder / 'imgui_internal.h'
+        self.imgui_cpp = self.root_folder / 'imgui.cpp'
+        self.imgui_tables = self.root_folder / 'imgui_tables.cpp'
+        self.imgui_widgets = self.root_folder / 'imgui_widgets.cpp'
+        self.imgui_draw = self.root_folder / 'imgui_draw.cpp'
+        self.imgui_demo = self.root_folder / 'imgui_demo.cpp'
+        self.imguiex_h = self.root_folder / 'imguiex.h'
+        self.imgui_implicit = self.root_folder / 'imgui_implicit.cpp'
+        self.tmp = self.root_folder / 'tmp.cpp'
+        self.this_script = pathlib.Path(__file__).resolve()
+        self.script_root = self.this_script.parent.resolve()
         self.test_cpp =  self.script_root / 'test/test.cpp'
         self.imgui_sources = set([
             self.imgui_h,
@@ -832,7 +834,7 @@ def replace_in_file(path, pairs):
 
 def generate(args, config: Config):
     print('--------')
-    print('SETTINGS:')
+    print('CONVERT SETTINGS:')
     print('  repository path = {}'.format(config.root_folder))
     print('  apply = {}'.format('enabled' if args.apply else 'disabled'))
     print('  commit = {}'.format('enabled' if args.commit else 'disabled'))
@@ -917,6 +919,9 @@ in the https://github.com/Dragnalith/make_explicit_imgui/ repository.
                 exit(-1)
 
         print('Conversion is successful !')
+    else:
+        print('Parsing and analysis are successful')
+        print('(conversion is not applied because the `apply` option is disabled)')
 
 def dump_test_ast(args, config):
     index = clang.cindex.Index.create()
@@ -936,21 +941,79 @@ def main():
     SourceLine.test()
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('repository_path', action='store', type=str, help="path to the root of dear imgui repository")
-    parser.add_argument('-v', '--verbose', action='store_true', default=False)
-    parser.add_argument('-x', '--apply', action='store_true', default=False, help="Do apply the conversion. Otherwise it just parses without applying the modification")
-    parser.add_argument('-c', '--commit', action='store_true', default=False, help="Commit the result of the conversion")
-    parser.add_argument('-d', '--dump-test-ast', action='store_true', default=False, help="Dump AST of manually written code for experimentation purpose")
+    subparsers = parser.add_subparsers(dest='command')
+
+    convert_parser = subparsers.add_parser('convert', help='convert a Dear ImGui repository to explicit context API')
+    convert_parser.add_argument('repository_path', action='store', type=str, help="path to the root of dear imgui repository")
+    convert_parser.add_argument('-v', '--verbose', action='store_true', default=False)
+    convert_parser.add_argument('-x', '--apply', action='store_true', default=False, help="Do apply the conversion. Otherwise it just parses without applying the modification")
+    convert_parser.add_argument('-c', '--commit', action='store_true', default=False, help="Commit the result of the conversion")
+    convert_parser.add_argument('-d', '--dump-test-ast', action='store_true', default=False, help="Dump AST of manually written code for experimentation purpose")
+
+    rebase_parser = subparsers.add_parser('rebase', help='rebase an existing explicit context API branch')
+    rebase_parser.add_argument('repository_path', action='store', type=str, help="path to the root of dear imgui repository")
+    rebase_parser.add_argument('--branch', action='store', required=True)
+    rebase_parser.add_argument('--base', action='store', required=False)
+    rebase_parser.add_argument('--onto', action='store', required=False)
+
+    rtransform = subparsers.add_parser('rtransform', help='internal command used by `rebase` command')
+    rtransform.add_argument('filepath', action='store', type=str, help="path to the root of dear imgui repository")
+    
     args = parser.parse_args()
 
-    root_folder = pathlib.Path(args.repository_path)
+    if args.command == 'convert':
+        config = Config(args.repository_path)
 
-    config = Config(root_folder)
+        if args.dump_test_ast:
+            dump_test_ast(args, config)
+        else:
+            generate(args, config)
+    elif args.command == 'rebase':
+        config = Config(args.repository_path)
 
-    if args.dump_test_ast:
-        dump_test_ast(args, config)
+        if args.onto is None:
+            args.onto = args.base
+
+        print('--------')
+        print('REBASE SETTINGS:')
+        print('  repository path = {}'.format(config.root_folder))
+        print('  branch = {}'.format(args.branch))
+        print('  base = {}'.format(args.base))
+        print('  onto = {}'.format(args.onto))
+        print('--------')
+
+        env_vars = os.environ.copy()
+        env_vars['GIT_SEQUENCE_EDITOR'] = 'python "{}" rtransform'.format(config.this_script.as_posix())
+        result = subprocess.run(['git', 'rebase', '-i', '--onto', args.onto, args.base, args.branch], cwd=config.root_folder, env=env_vars)
+
+        if result.returncode != 0:
+            result = subprocess.run(['git', 'rebase', '--abort'], cwd=config.root_folder)
+            print("`git rebase -i` has failed")
+
+            exit(-1)
+
+    elif args.command == 'rtransform':
+        filepath = pathlib.Path(args.filepath)
+        this_script = pathlib.Path(__file__).resolve()
+        input_text = filepath.read_text()
+        output_text = ""
+        for line in input_text.splitlines():
+            if len(line) == 0 or line[0] == '#':
+                continue
+
+            items = line.split(' ')
+            if len(items) > 2 and items[2] == '[generated]':
+                output_text += "exec python {this} convert . -xc\n".format(this=this_script.as_posix())
+            else:
+                output_text += line
+                output_text += "\n"
+
+
+        filepath.write_text(output_text)
+
     else:
-        generate(args, config)
+        print('error while parsing command line')
+        exit(-1)
 
 if __name__ == '__main__':
     main()
