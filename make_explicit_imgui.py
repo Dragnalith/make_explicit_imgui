@@ -98,24 +98,6 @@ class Config:
         self.imgui_implicit = root_folder / 'imgui_implicit.cpp'
         self.tmp = root_folder / 'tmp.cpp'
         self.script_root = pathlib.Path(__file__).parent.absolute()
-        self.patch = [
-            self.script_root / 'patches/remove_gimgui.patch',
-            self.script_root / 'patches/get_key_data.patch',
-            self.script_root / 'patches/legacy_native_dupe.patch',
-            self.script_root / 'patches/once_upon_a_frame.patch',
-            self.script_root / 'patches/context.patch',
-            self.script_root / 'patches/remove_demo_assert.patch',
-            self.script_root / 'patches/style_init.patch',
-            self.script_root / 'patches/get_key_index.patch',
-            self.script_root / 'patches/fix_demo_text.patch',
-            self.script_root / 'patches/demo_legacy_native_dupe.patch',
-            self.script_root / 'patches/demo_disable_debug_tools.patch',
-            self.script_root / 'patches/dx12_main.patch',
-            self.script_root / 'patches/dx12_cpp.patch',
-            self.script_root / 'patches/dx12_h.patch',
-            self.script_root / 'patches/win32_cpp.patch',
-            self.script_root / 'patches/win32_h.patch',
-        ]
         self.test_cpp =  self.script_root / 'test/test.cpp'
         self.imgui_sources = set([
             self.imgui_h,
@@ -776,14 +758,12 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
 
     func_db.compute_context_need()
 
-    print('--- REMOVE GLOBAL CONTEXT ---')
     for func in func_db.iter_definitions():
         for implicit_context in func.implicit_contexts:
             ctx.request_replace_context(implicit_context)
             if verbose:
                 print('Replace `GImGui` with `context` in {} at {}'.format(func.fq_name, implicit_context))
 
-    print('--- ADD CONTEXT PARAMETER ---')
     for func in func_db.iter():
         if func.need_context_param:
             if not func.is_definition:
@@ -804,7 +784,6 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
                 req = TransformStrRequest(arg.code_range.start_column - 1, arg.code_range.end_column - 1, arg.declaration, 'ImGuiContext* ctx')
                 ctx.request_replace(arg.code_range.file, arg.code_range.start_line, req)
 
-    print('--- FORWARD CONTEXT ---')
     for call in func_db.iter_calls():
         if call.callee.need_context_param and call.callee.imgui_context_arg is None:
             var_name = 'Ctx' if call.caller.method_class in CLASS_WITH_CONTEXT else 'ctx'
@@ -812,7 +791,6 @@ def find_function_call(ctx: ParsingContext, config: Config, func_db : FunctionDa
             if verbose:
                 print('Forward `context` to {} at {}'.format(call.callee.fq_name, call.code_range))
     
-    print('--- FORWARD CONTEXT (LOG CALL) ---')
     for name, code_range, method_class in func_db.iter_log_calls():
         var_name = 'Ctx' if method_class in CLASS_WITH_CONTEXT else 'ctx'
         ctx.request_replace_call(code_range.file, code_range.start_line, var_name, code_range, name, True)
@@ -853,6 +831,12 @@ def replace_in_file(path, pairs):
         file.write(filedata)
 
 def generate(args, config: Config):
+    print('--------')
+    print('SETTINGS:')
+    print('  repository path = {}'.format(config.root_folder))
+    print('  apply = {}'.format('enabled' if args.apply else 'disabled'))
+    print('  commit = {}'.format('enabled' if args.commit else 'disabled'))
+    print('--------')
     tmp_content = \
 '''
 #define IM_STATIC_ASSERT(...) static_assert(true)
@@ -868,9 +852,6 @@ def generate(args, config: Config):
 
     index = clang.cindex.Index.create()
     
-    if args.execute:
-        subprocess.run(['git', 'checkout', '-f'], cwd=config.root_folder)
-
     # Disable annotation which generate compilation error with libclang
     replace_in_file(config.imgui_h, [
         ('#define IM_FMTARGS', '//TMP#define IM_FMTARGS'),
@@ -880,6 +861,7 @@ def generate(args, config: Config):
         ('#define IM_STATIC_ASSERT', '//TMP#define IM_STATIC_ASSERT'),
     ])
 
+    print('parse C++ sources...')
     tu = index.parse(config.tmp, unsaved_files=[(config.tmp, tmp_content)], args=['-std=c++17'])
 
     replace_in_file(config.imgui_h, [
@@ -896,6 +878,7 @@ def generate(args, config: Config):
         for d in tu.diagnostics:
             print(d)
 
+    print('Analyze syntax tree...')
     funcs = find_function(ctx, config, verbose=args.verbose)
     func_db = FunctionDatabase(ctx, funcs)
     find_function_call(ctx, config, func_db, verbose=args.verbose)
@@ -906,22 +889,34 @@ def generate(args, config: Config):
     methods.sort(key= lambda f: f.method_class)
     classes = set([f.method_class for f in methods])
 
-    print('--- CLASS depending on GImGui ---')
-    for c in classes:
-        print(c)
-        for m in [m for m in methods if m.method_class == c]:
-            print(' -> ' + m.fq_name)
+    if args.verbose:
+        print('# Dump the list of classes depending on GImGui #')
+        for c in classes:
+            print(c)
+            for m in [m for m in methods if m.method_class == c]:
+                print(' -> ' + m.fq_name)
 
-    if args.execute:
+    if args.apply:
+        print('Apply conversion...')
         ctx.transform_sources()
 
+        if args.commit:
+            commit_message = """[generated] Convert Dear ImGui API to use an explicit ImGuiContext.
 
-        print('--- MODIFY NAMESPACE ---')
-        
-        # Apply patches
-        for p in config.patch:
-            result = subprocess.run(['git', 'apply', '--reject', p], cwd=config.root_folder)
-            assert result.returncode == 0, "{} application has failed".format(p)
+This commit has been generated by the make_explicit_imgui.py script available
+in the https://github.com/Dragnalith/make_explicit_imgui/ repository.
+"""
+            result = subprocess.run(['git', 'commit', '-a', '-F', '-'], input=commit_message.encode(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=config.root_folder)
+
+            stdout = result.stdout.decode()
+            stderr = result.stderr.decode()
+            if result.returncode != 0:
+                print(stdout)
+                print(stderr)
+                print("`git commit` has failed")
+                exit(-1)
+
+        print('Conversion is successful !')
 
 def dump_test_ast(args, config):
     index = clang.cindex.Index.create()
@@ -943,7 +938,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('repository_path', action='store', type=str, help="path to the root of dear imgui repository")
     parser.add_argument('-v', '--verbose', action='store_true', default=False)
-    parser.add_argument('-x', '--execute', action='store_true', default=False, help="Actually do the imgui repository conversion")
+    parser.add_argument('-x', '--apply', action='store_true', default=False, help="Do apply the conversion. Otherwise it just parses without applying the modification")
+    parser.add_argument('-c', '--commit', action='store_true', default=False, help="Commit the result of the conversion")
     parser.add_argument('-d', '--dump-test-ast', action='store_true', default=False, help="Dump AST of manually written code for experimentation purpose")
     args = parser.parse_args()
 

@@ -80,7 +80,7 @@
     - In imgui_implicit.cpp
       - Remove ShowDemoWindow, ShowAboutWindow, ShowFontSelector, ShowStyleSelector, ShowStyleEditor, ShowUserGuide
 
-- 2023-05-18: Update some patches
+- 2023-11-21: Update some patches
   - Methodology:
     - Comment from the patch list of make_explicit_imgui.py all patchs which are failing.
     - One by one:
@@ -88,3 +88,15 @@
       - update the patch file using `git diff > ...`
       - uncomment the patch on the patch
       - very the patch does not fail anymore
+
+- 2023-11-23: Changing strategy from patch management to rebase
+  - Instead of applying patches stored in this repository, the new strategy is to rebase a branch containing the patches
+  - The branch is expected to have:
+    - a list preparatory commits to be applied before using make_explicit_imgui.py
+    - then one generated commit coming from the execution of make_explicit_imgui.py
+    - followed by a list of fix commits fixing the remaing issues by hand
+  - The now flow is to rebase using `git rebase -i` with the following algo:
+    - apply the preparatory commit
+    - drop the generated commits
+    - regenerate using make_explicit_imgui.py
+    - apply the fix commits
